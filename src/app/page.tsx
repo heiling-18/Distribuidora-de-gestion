@@ -177,6 +177,7 @@ export default function DYMSApp() {
 
   // 4. Modales de Confirmación In-App (Cero window.confirm o window.prompt)
   const [gastoAEliminar, setGastoAEliminar] = useState<Gasto | null>(null);
+  const [clienteAEliminar, setClienteAEliminar] = useState<Cliente | null>(null);
   const [ventaAAnular, setVentaAAnular] = useState<Venta | null>(null);
   const [motivoAnulacionInput, setMotivoAnulacionInput] = useState('');
 
@@ -201,7 +202,7 @@ export default function DYMSApp() {
   const [busquedaProdPOS, setBusquedaProdPOS] = useState('');
   const [filtroCatPOS, setFiltroCatPOS] = useState('Todas');
   const [paginaPOS, setPaginaPOS] = useState(1);
-  const prodsPorPagina = 8;
+  const prodsPorPagina = 4;
 
   // Cliente Opcional en POS
   const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
@@ -211,7 +212,7 @@ export default function DYMSApp() {
   // 8. Ticket de Venta
   const [ticketVentaData, setTicketVentaData] = useState<any | null>(null);
 
-  // 9. Inventario y Calculador Automático de Precios por Margen %
+  // 9. Inventario y Calculador Automático de Precios por Margen % e IVA
   const [modalProd, setModalProd] = useState(false);
   const [editandoProdId, setEditandoProdId] = useState<number | null>(null);
   const [prodNombre, setProdNombre] = useState('');
@@ -228,34 +229,41 @@ export default function DYMSApp() {
   const [busquedaInv, setBusquedaInv] = useState('');
   const [filtroCatInv, setFiltroCatInv] = useState('Todas');
 
-  // Funciones de cálculo dinámico de precios por margen
+  // Funciones de cálculo dinámico de precios por margen e IVA
+  const recalcularPrecios = (costoVal: string, margenDVal: string, margenMVal: string, ivaVal: string) => {
+    const c = Number(costoVal) || 0;
+    const mD = Number(margenDVal) || 0;
+    const mM = Number(margenMVal) || 0;
+    const iv = Number(ivaVal) || 0;
+    if (c > 0) {
+      const baseDetal = c * (1 + mD / 100);
+      const precioDetalConIva = Math.round(baseDetal * (1 + iv / 100));
+      setProdPrecioDetal(String(precioDetalConIva));
+
+      const baseMayor = c * (1 + mM / 100);
+      const precioMayorConIva = Math.round(baseMayor * (1 + iv / 100));
+      setProdPrecioMayor(String(precioMayorConIva));
+    }
+  };
+
   const handleCostoChange = (val: string) => {
     setProdCosto(val);
-    const c = Number(val);
-    const mD = Number(prodMargenDeseado) || 20;
-    const mM = Number(prodMargenMayorista) || 12;
-    if (c > 0) {
-      setProdPrecioDetal(String(Math.round(c * (1 + mD / 100))));
-      setProdPrecioMayor(String(Math.round(c * (1 + mM / 100))));
-    }
+    recalcularPrecios(val, prodMargenDeseado, prodMargenMayorista, prodIva);
   };
 
   const handleMargenDetalChange = (val: string) => {
     setProdMargenDeseado(val);
-    const c = Number(prodCosto);
-    const mD = Number(val) || 0;
-    if (c > 0) {
-      setProdPrecioDetal(String(Math.round(c * (1 + mD / 100))));
-    }
+    recalcularPrecios(prodCosto, val, prodMargenMayorista, prodIva);
   };
 
   const handleMargenMayorChange = (val: string) => {
     setProdMargenMayorista(val);
-    const c = Number(prodCosto);
-    const mM = Number(val) || 0;
-    if (c > 0) {
-      setProdPrecioMayor(String(Math.round(c * (1 + mM / 100))));
-    }
+    recalcularPrecios(prodCosto, prodMargenDeseado, val, prodIva);
+  };
+
+  const handleIvaChange = (val: string) => {
+    setProdIva(val);
+    recalcularPrecios(prodCosto, prodMargenDeseado, prodMargenMayorista, val);
   };
 
   // 10. Clientes Formulario / Edición
@@ -347,12 +355,26 @@ export default function DYMSApp() {
       if (gts) setGastos(gts);
 
       // 4. Cargar Clientes (con respaldo localStorage)
-      const { data: clis } = await supabase.from('clientes').select('*').order('nombre', { ascending: true });
-      const clisLocal = localStorage.getItem('dyms_clientes');
+      const { data: clis, error: errClis } = await supabase.from('clientes').select('*').order('nombre', { ascending: true });
+      const clisLocalStr = localStorage.getItem('dyms_clientes');
+      const clisLocal: Cliente[] = clisLocalStr ? JSON.parse(clisLocalStr) : [];
       if (clis && clis.length > 0) {
         setClientes(clis);
-      } else if (clisLocal) {
-        try { setClientes(JSON.parse(clisLocal)); } catch {}
+        localStorage.setItem('dyms_clientes', JSON.stringify(clis));
+      } else if (clisLocal.length > 0) {
+        setClientes(clisLocal);
+        if (!errClis) {
+          try {
+            for (const c of clisLocal) {
+              await supabase.from('clientes').insert([{
+                documento: c.documento,
+                nombre: c.nombre,
+                telefono: c.telefono,
+                direccion: c.direccion
+              }]);
+            }
+          } catch {}
+        }
       }
 
       // 5. PERSISTENCIA DE CAJA: No cerrar en recarga (F5)
@@ -408,6 +430,22 @@ export default function DYMSApp() {
       currency: 'COP',
       maximumFractionDigits: 0
     }).format(val || 0);
+  };
+
+  // Helper para identificar si una venta fue Al Detal o Al por Mayor
+  const determinarTipoPrecioVenta = (v: Venta): 'detal' | 'mayorista' => {
+    if (v.tipo_precio === 'mayorista' || v.tipo_precio === 'mayor') return 'mayorista';
+    if (v.tipo_precio === 'detal') return 'detal';
+    if (v.estado_pago && v.estado_pago.toLowerCase().includes('mayorista')) return 'mayorista';
+    if (v.estado_pago && v.estado_pago.toLowerCase().includes('detal')) return 'detal';
+    const prod = productos.find(p => p.id === v.producto_id || p.nombre.trim().toLowerCase() === v.nombre_producto.trim().toLowerCase());
+    if (prod && prod.precio_mayorista && prod.precio_venta && prod.precio_mayorista !== prod.precio_venta) {
+      const difMayor = Math.abs(v.precio_unitario - prod.precio_mayorista);
+      const difDetal = Math.abs(v.precio_unitario - prod.precio_venta);
+      if (difMayor < difDetal) return 'mayorista';
+    }
+    if (prod && v.precio_unitario < prod.precio_venta) return 'mayorista';
+    return 'detal';
   };
 
   // ==========================================
@@ -730,7 +768,7 @@ export default function DYMSApp() {
           total_venta: item.total,
           ganancia_bruta: item.total - (item.cantidad * item.producto.precio_compra),
           metodo_pago: metodoPagoPOS,
-          estado_pago: 'pagado',
+          estado_pago: item.tipo_precio === 'mayorista' ? 'pagado (mayorista)' : 'pagado (detal)',
           cliente_nombre: clienteNombreFinal,
           vendedor: usuario?.nombre || 'Vendedor'
         };
@@ -756,7 +794,7 @@ export default function DYMSApp() {
           total_venta: item.total,
           ganancia_bruta: ventaRecordDB.ganancia_bruta,
           metodo_pago: metodoPagoPOS,
-          estado_pago: 'pagado',
+          estado_pago: item.tipo_precio === 'mayorista' ? 'pagado (mayorista)' : 'pagado (detal)',
           vendedor: usuario?.nombre || 'Vendedor',
           fecha: data ? data.fecha : new Date().toISOString(),
           estado: 'completada'
@@ -938,7 +976,7 @@ export default function DYMSApp() {
   };
 
   // ==========================================
-  // 16. CLIENTES: CONSULTAR, EDITAR Y GUARDAR
+  // 16. CLIENTES: CONSULTAR, EDITAR, ELIMINAR Y GUARDAR
   // ==========================================
   const handleGuardarCliente = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -959,25 +997,31 @@ export default function DYMSApp() {
 
     try {
       if (editandoClienteId) {
-        try {
-          await supabase.from('clientes').update(nuevoClienteData).eq('id', editandoClienteId);
-        } catch {}
+        const { error } = await supabase.from('clientes').update(nuevoClienteData).eq('id', editandoClienteId);
+        if (error && error.code === '42501') {
+          mostrarNotificacion('advertencia', 'Cliente actualizado en tu dispositivo. (Nota: Para sincronizar con la nube, desactiva RLS en la tabla clientes de Supabase).');
+        } else {
+          mostrarNotificacion('exito', '¡Cliente actualizado con éxito!');
+        }
 
         const actualizados = clientes.map(c => c.id === editandoClienteId ? { ...nuevoClienteData, id: editandoClienteId } : c);
         setClientes(actualizados);
         localStorage.setItem('dyms_clientes', JSON.stringify(actualizados));
-        mostrarNotificacion('exito', '¡Cliente actualizado con éxito!');
       } else {
         let idAsignado = Date.now();
-        try {
-          const { data } = await supabase.from('clientes').insert([nuevoClienteData]).select().single();
-          if (data) idAsignado = data.id;
-        } catch {}
+        const { data, error } = await supabase.from('clientes').insert([nuevoClienteData]).select().single();
+        if (error && error.code === '42501') {
+          mostrarNotificacion('advertencia', '¡Cliente guardado en el sistema! Nota: La tabla "clientes" de Supabase tiene RLS activado. Desactívalo en Supabase para reflejarlo en la nube.');
+        } else if (data) {
+          idAsignado = data.id;
+          mostrarNotificacion('exito', '¡Cliente registrado y sincronizado en Supabase!');
+        } else {
+          mostrarNotificacion('exito', '¡Cliente registrado en el directorio de DYM’S!');
+        }
 
         const nuevos = [...clientes, { ...nuevoClienteData, id: idAsignado }];
         setClientes(nuevos);
         localStorage.setItem('dyms_clientes', JSON.stringify(nuevos));
-        mostrarNotificacion('exito', '¡Cliente registrado en el directorio de DYM’S!');
       }
 
       setCliDoc('');
@@ -991,6 +1035,28 @@ export default function DYMSApp() {
     } finally {
       setProcesandoCliente(false);
     }
+  };
+
+  const handleConfirmarEliminarCliente = async (id: number) => {
+    try {
+      const { error } = await supabase.from('clientes').delete().eq('id', id);
+      if (error && error.code === '42501') {
+        mostrarNotificacion('advertencia', 'Cliente eliminado localmente. (Nota: RLS en Supabase impide borrarlo en la nube hasta desactivar RLS).');
+      } else {
+        mostrarNotificacion('exito', 'Cliente eliminado del directorio con éxito.');
+      }
+    } catch (e) {
+      console.error('Error eliminando cliente de Supabase:', e);
+      mostrarNotificacion('exito', 'Cliente eliminado del directorio.');
+    }
+
+    const actualizados = clientes.filter(c => c.id !== id);
+    setClientes(actualizados);
+    localStorage.setItem('dyms_clientes', JSON.stringify(actualizados));
+    if (clienteSeleccionado?.id === id) {
+      setClienteSeleccionado(null);
+    }
+    setClienteAEliminar(null);
   };
 
   // ==========================================
@@ -1081,12 +1147,13 @@ export default function DYMSApp() {
     }
 
     const encabezados = [
-      'ID Venta', 'Fecha', 'Hora', 'Vendedor', 'Cliente', 'Documento', 'Producto',
+      'ID Venta', 'Fecha', 'Hora', 'Vendedor', 'Cliente', 'Documento', 'Producto', 'Modalidad',
       'Cantidad', 'Precio Unitario', 'Total Venta', 'Ganancia Estimada', 'Metodo Pago', 'Estado', 'Motivo Anulacion'
     ];
 
     const filas = lista.map(v => {
       const d = new Date(v.fecha);
+      const mod = determinarTipoPrecioVenta(v) === 'mayorista' ? 'Al por Mayor' : 'Al Detal';
       return [
         v.id,
         d.toLocaleDateString(),
@@ -1095,6 +1162,7 @@ export default function DYMSApp() {
         `"${v.cliente_nombre || 'Cliente General'}"`,
         `"${v.cliente_documento || 'C.C.'}"`,
         `"${v.nombre_producto}"`,
+        `"${mod}"`,
         v.cantidad,
         v.precio_unitario,
         v.total_venta,
@@ -1641,7 +1709,20 @@ ${detalle}
                           return (
                             <tr key={v.id} className={esAnulada ? 'bg-red-50/50 line-through text-slate-400' : 'hover:bg-slate-50'}>
                               <td className="py-2.5 px-3">{new Date(v.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                              <td className="py-2.5 px-3 font-bold text-[#212121]">{v.nombre_producto}</td>
+                              <td className="py-2.5 px-3">
+                                <span className="font-bold text-[#212121]">{v.nombre_producto}</span>
+                                <span className="ml-1.5">
+                                  {determinarTipoPrecioVenta(v) === 'mayorista' ? (
+                                    <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-black bg-blue-100 text-blue-800">
+                                      Mayor
+                                    </span>
+                                  ) : (
+                                    <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-black bg-orange-100 text-[#E35336]">
+                                      Detal
+                                    </span>
+                                  )}
+                                </span>
+                              </td>
                               <td className="py-2.5 px-3 font-black">{v.cantidad}</td>
                               <td className="py-2.5 px-3 font-black text-[#212121]">{formatoMoneda(v.total_venta)}</td>
                               <td className="py-2.5 px-3 capitalize">{v.metodo_pago}</td>
@@ -1790,36 +1871,48 @@ ${detalle}
                 )}
               </div>
 
-              {/* PAGINACIÓN DE PRODUCTOS */}
-              {totalPaginasPOS > 1 && (
-                <div className="bg-white p-3 rounded-2xl border-2 border-[#212121]/10 flex items-center justify-center gap-1.5 text-xs font-bold">
-                  <button
-                    disabled={paginaPOS === 1}
-                    onClick={() => setPaginaPOS(prev => Math.max(1, prev - 1))}
-                    className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition"
-                  >
-                    ← Anterior
-                  </button>
-                  {Array.from({ length: totalPaginasPOS }, (_, i) => i + 1).map((num) => (
+              {/* PAGINACIÓN ESTILO NÚMEROS (AMAZON / GOOGLE) */}
+              {productosFiltradosPOS.length > 0 && (
+                <div className="bg-white py-3 px-4 rounded-2xl border-2 border-[#212121]/10 flex flex-wrap items-center justify-center gap-2 text-sm select-none">
+                  {paginaPOS > 1 && (
                     <button
-                      key={num}
-                      onClick={() => setPaginaPOS(num)}
-                      className={`w-8 h-8 rounded-lg font-black transition ${
-                        paginaPOS === num
-                          ? 'bg-[#E35336] text-white shadow-md'
-                          : 'bg-slate-50 text-slate-700 hover:bg-slate-200 border border-slate-200'
-                      }`}
+                      type="button"
+                      onClick={() => setPaginaPOS(prev => Math.max(1, prev - 1))}
+                      className="text-slate-700 hover:text-black font-bold px-3 py-1.5 rounded-lg hover:bg-slate-100 transition flex items-center gap-1"
                     >
-                      {num}
+                      ‹ Anterior
                     </button>
-                  ))}
-                  <button
-                    disabled={paginaPOS === totalPaginasPOS}
-                    onClick={() => setPaginaPOS(prev => Math.min(totalPaginasPOS, prev + 1))}
-                    className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition"
-                  >
-                    Siguiente →
-                  </button>
+                  )}
+
+                  <div className="flex items-center gap-1.5">
+                    {Array.from({ length: totalPaginasPOS }, (_, i) => i + 1).map((num) => {
+                      const activo = paginaPOS === num;
+                      return (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setPaginaPOS(num)}
+                          className={`min-w-[34px] h-[34px] px-2 rounded-lg font-black text-sm transition flex items-center justify-center ${
+                            activo
+                              ? 'border-2 border-[#1E88E5] text-[#1E88E5] bg-white shadow-xs'
+                              : 'text-slate-600 hover:text-black hover:bg-slate-100 font-semibold'
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {paginaPOS < totalPaginasPOS && (
+                    <button
+                      type="button"
+                      onClick={() => setPaginaPOS(prev => Math.min(totalPaginasPOS, prev + 1))}
+                      className="text-slate-700 hover:text-black font-bold px-3 py-1.5 rounded-lg hover:bg-slate-100 transition flex items-center gap-1"
+                    >
+                      Siguiente ›
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -2109,7 +2202,20 @@ ${detalle}
                         <tr key={v.id} className={esAnulada ? 'bg-red-50/50 line-through text-slate-400' : 'hover:bg-[#FFF8DC]/20'}>
                           <td className="py-3 px-3">{new Date(v.fecha).toLocaleString()}</td>
                           <td className="py-3 px-3 font-bold text-[#212121]">{v.cliente_nombre}</td>
-                          <td className="py-3 px-3">{v.nombre_producto}</td>
+                          <td className="py-3 px-3">
+                            <div className="font-bold text-[#212121]">{v.nombre_producto}</div>
+                            <div className="mt-0.5">
+                              {determinarTipoPrecioVenta(v) === 'mayorista' ? (
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-100 text-blue-800">
+                                  Al por Mayor
+                                </span>
+                              ) : (
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-orange-100 text-[#E35336]">
+                                  Al Detal
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="py-3 px-3 font-black">{v.cantidad}</td>
                           <td className="py-3 px-3">{formatoMoneda(v.precio_unitario)}</td>
                           <td className="py-3 px-3 font-black text-[#212121]">{formatoMoneda(v.total_venta)}</td>
@@ -2508,19 +2614,28 @@ ${detalle}
                         <td className="py-3 px-3 text-[#212121]/70">{c.direccion || '-'}</td>
                         <td className="py-3 px-3 text-right">
                           {usuario.rol === 'admin' && (
-                            <button
-                              onClick={() => {
-                                setEditandoClienteId(c.id);
-                                setCliDoc(c.documento);
-                                setCliNombre(c.nombre);
-                                setCliTel(c.telefono || '');
-                                setCliDir(c.direccion || '');
-                                setModalCliente(true);
-                              }}
-                              className="px-2.5 py-1 bg-white border border-[#212121]/20 hover:border-[#E35336] hover:text-[#E35336] rounded-lg text-[11px] font-bold transition"
-                            >
-                              Editar
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => {
+                                  setEditandoClienteId(c.id);
+                                  setCliDoc(c.documento);
+                                  setCliNombre(c.nombre);
+                                  setCliTel(c.telefono || '');
+                                  setCliDir(c.direccion || '');
+                                  setModalCliente(true);
+                                }}
+                                className="px-2.5 py-1 bg-white border border-[#212121]/20 hover:border-[#E35336] hover:text-[#E35336] rounded-lg text-[11px] font-bold transition"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                onClick={() => setClienteAEliminar(c)}
+                                className="p-1 text-slate-400 hover:text-[#D32F2F] hover:bg-rose-50 rounded-lg transition"
+                                title="Eliminar Cliente"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -2649,7 +2764,20 @@ ${detalle}
                       <tr key={v.id} className="hover:bg-slate-50">
                         <td className="py-2.5 px-3">{new Date(v.fecha).toLocaleDateString()}</td>
                         <td className="py-2.5 px-3 font-bold">{v.cliente_nombre}</td>
-                        <td className="py-2.5 px-3">{v.nombre_producto}</td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-[#212121]">{v.nombre_producto}</div>
+                          <div className="mt-0.5">
+                            {determinarTipoPrecioVenta(v) === 'mayorista' ? (
+                              <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-black bg-blue-100 text-blue-800">
+                                Al por Mayor
+                              </span>
+                            ) : (
+                              <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-black bg-orange-100 text-[#E35336]">
+                                Al Detal
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-2.5 px-3 font-black">{v.cantidad}</td>
                         <td className="py-2.5 px-3 font-black text-[#212121]">{formatoMoneda(v.total_venta)}</td>
                         <td className="py-2.5 px-3 font-bold text-emerald-700">+{formatoMoneda(v.ganancia_bruta)}</td>
@@ -2658,6 +2786,7 @@ ${detalle}
                         <td className="py-2.5 px-3 text-right">
                           <button
                             onClick={() => {
+                              const tipoPrecioRec = determinarTipoPrecioVenta(v);
                               setTicketVentaData({
                                 numero: v.id,
                                 fecha: new Date(v.fecha).toLocaleString(),
@@ -2668,7 +2797,7 @@ ${detalle}
                                 items: [{
                                   producto: { nombre: v.nombre_producto, precio_venta: v.precio_unitario, precio_compra: v.costo_unitario, categoria: '' },
                                   cantidad: v.cantidad,
-                                  tipo_precio: v.tipo_precio || 'detal',
+                                  tipo_precio: tipoPrecioRec,
                                   precio_aplicado: v.precio_unitario,
                                   subtotal: v.total_venta,
                                   iva_monto: 0,
@@ -2724,7 +2853,9 @@ ${detalle}
                 </div>
                 {ticketVentaData.items.map((it: ItemCarrito, i: number) => (
                   <div key={i} className="flex justify-between text-[11px] leading-tight">
-                    <span className="truncate mr-2">{it.cantidad}x {it.producto.nombre}</span>
+                    <span className="truncate mr-2">
+                      {it.cantidad}x {it.producto.nombre} <span className="font-bold text-[9px]">{it.tipo_precio === 'mayorista' ? '(Mayorista)' : '(Detal)'}</span>
+                    </span>
                     <span className="font-black whitespace-nowrap">{formatoMoneda(it.total)}</span>
                   </div>
                 ))}
@@ -3143,11 +3274,11 @@ ${detalle}
                 />
               </div>
 
-              {/* CALCULADOR AUTOMÁTICO DE PRECIOS POR MARGEN PORCENTUAL (%) */}
-              <div className="bg-[#FFF8DC] p-3 rounded-2xl border-2 border-[#E35336]/30 space-y-2">
+              {/* CALCULADOR AUTOMÁTICO DE PRECIOS POR MARGEN PORCENTUAL (%) E IVA */}
+              <div className="bg-[#FFF8DC] p-3 rounded-2xl border-2 border-[#E35336]/30 space-y-2.5">
                 <div className="flex items-center justify-between text-xs font-black text-[#E35336]">
-                  <span className="flex items-center gap-1.5"><Percent className="w-3.5 h-3.5" /> Calculador Automático de Margen (%)</span>
-                  <span className="text-[10px] text-slate-500 font-normal">Calcula y puedes modificar abajo</span>
+                  <span className="flex items-center gap-1.5"><Percent className="w-3.5 h-3.5" /> Calculador de Margen e IVA</span>
+                  <span className="text-[10px] text-slate-500 font-normal">Calcula sugerido y puedes editar abajo</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -3169,6 +3300,43 @@ ${detalle}
                       onChange={(e) => handleMargenMayorChange(e.target.value)}
                       className="w-full px-2 py-1 text-xs font-bold border border-slate-300 rounded-lg bg-white outline-none"
                     />
+                  </div>
+                </div>
+
+                {/* Sección de IVA */}
+                <div className="border-t border-[#E35336]/20 pt-2">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[10px] font-black uppercase text-[#212121]">IVA (%):</label>
+                    <div className="flex items-center gap-1">
+                      {['0', '5', '19'].map((ivaRate) => (
+                        <button
+                          key={ivaRate}
+                          type="button"
+                          onClick={() => handleIvaChange(ivaRate)}
+                          className={`px-2 py-0.5 rounded text-[10px] font-black transition ${
+                            prodIva === ivaRate
+                              ? 'bg-[#E35336] text-white'
+                              : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          {ivaRate}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="0"
+                      value={prodIva}
+                      onChange={(e) => handleIvaChange(e.target.value)}
+                      className="w-20 px-2 py-1 text-xs font-bold border border-slate-300 rounded-lg bg-white outline-none"
+                    />
+                    <span className="text-[10px] text-slate-600 font-medium">
+                      {Number(prodIva) > 0 ? `+${prodIva}% IVA incluido en el cálculo` : 'Producto exento de IVA (0%)'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -3410,18 +3578,21 @@ ${detalle}
                           Mínimo requerido: {p.stock_minimo} {p.unidad_medida}s
                         </span>
                       </div>
-                      <div className="text-right">
-                        <span className="px-2.5 py-1 rounded-full text-xs font-black bg-rose-600 text-white">
+                      <div className="flex flex-col items-end gap-1.5">
+                        <span className="px-2.5 py-1 rounded-full text-xs font-black bg-rose-600 text-white shadow-xs">
                           {p.stock} {p.unidad_medida}s
                         </span>
                         {usuario.rol === 'admin' && (
                           <button
+                            type="button"
                             onClick={() => {
                               setModalAlertasStock(false);
                               setEditandoProdId(p.id);
                               setProdNombre(p.nombre);
                               setProdCategoria(p.categoria);
                               setProdCosto(String(p.precio_compra));
+                              setProdMargenDeseado('20');
+                              setProdMargenMayorista('12');
                               setProdPrecioDetal(String(p.precio_venta));
                               setProdPrecioMayor(String(p.precio_mayorista));
                               setProdStock(String(p.stock));
@@ -3431,9 +3602,10 @@ ${detalle}
                               setModuloActivo('inventario');
                               setModalProd(true);
                             }}
-                            className="block mt-1 text-[10px] font-bold text-[#E35336] hover:underline"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#E35336] hover:bg-[#c9452b] text-white text-xs font-black shadow-md transition transform hover:scale-105 active:scale-95"
                           >
-                            Reponer stock →
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Reponer Stock</span>
                           </button>
                         )}
                       </div>
@@ -3448,6 +3620,48 @@ ${detalle}
             >
               Cerrar
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL IN-APP: CONFIRMAR ELIMINACIÓN DE CLIENTE (SIN CONFIRM) */}
+      {/* ============================================================ */}
+      {clienteAEliminar && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-[#D32F2F]">
+              <div className="p-3 bg-rose-100 rounded-2xl">
+                <Trash2 className="w-6 h-6 text-[#D32F2F]" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[#212121]">¿Eliminar Cliente?</h3>
+                <p className="text-xs text-slate-500">Esta acción removerá el cliente del sistema</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-700 space-y-1">
+              <p className="font-bold text-[#212121]">{clienteAEliminar.nombre}</p>
+              <p className="text-slate-500">C.C. / NIT: {clienteAEliminar.documento}</p>
+              {clienteAEliminar.telefono && <p className="text-slate-500">Tel: +57 {clienteAEliminar.telefono}</p>}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setClienteAEliminar(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmarEliminarCliente(clienteAEliminar.id)}
+                className="py-2.5 px-4 bg-[#D32F2F] hover:bg-red-700 text-white font-black rounded-xl text-xs shadow-md transition"
+              >
+                Eliminar Cliente
+              </button>
+            </div>
           </div>
         </div>
       )}
