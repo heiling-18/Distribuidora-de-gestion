@@ -18,35 +18,29 @@ import {
   RefreshCw, 
   LogOut, 
   FileSpreadsheet, 
-  ArrowDownCircle, 
-  Lock, 
-  Mail, 
-  LogIn,
-  Printer,
-  Users,
-  Search,
-  Filter,
-  BarChart3,
-  Calendar,
-  Layers,
-  AlertCircle,
-  Tag,
-  Calculator,
-  ArrowUpRight,
-  ArrowDownRight,
-  Percent,
-  Check,
-  X,
-  CreditCard,
-  Building2,
-  Trash2,
-  Edit2,
-  ArrowRight,
-  RotateCcw
+  Printer, 
+  Users, 
+  Search, 
+  Filter, 
+  BarChart3, 
+  Calendar, 
+  Layers, 
+  AlertCircle, 
+  Trash2, 
+  Edit2, 
+  ArrowRight, 
+  ArrowUpRight, 
+  Check, 
+  X, 
+  Loader2, 
+  Info, 
+  Eye,
+  Mail,
+  Lock
 } from 'lucide-react';
 
 // ==========================================
-// TIPOS Y MODELOS DYM'S
+// MODELOS Y TIPOS DE DATOS DYM'S
 // ==========================================
 interface Usuario {
   id: number;
@@ -59,14 +53,14 @@ interface Producto {
   id: number;
   codigo?: string;
   nombre: string;
-  categoria: string; // 'Purinas y Concentrados' | 'Pollos y Aves' | 'Huevos' | 'Otros'
+  categoria: string;
   precio_compra: number;
-  precio_venta: number; // Detal
+  precio_venta: number; // Precio Detal
   precio_mayorista: number;
   iva_porcentaje: number;
   stock: number;
   stock_minimo: number;
-  unidad_medida: string; // 'bulto' | 'unidad' | 'panal' | 'kilo'
+  unidad_medida: string;
 }
 
 interface Cliente {
@@ -89,19 +83,21 @@ interface ItemCarrito {
 
 interface Venta {
   id: number;
-  cliente_documento: string;
+  producto_id?: number;
+  cliente_documento?: string;
   cliente_nombre: string;
   nombre_producto: string;
   categoria_producto?: string;
   cantidad: number;
-  tipo_precio: string;
+  tipo_precio?: string;
   precio_unitario: number;
   costo_unitario: number;
-  subtotal: number;
-  iva_total: number;
+  subtotal?: number;
+  iva_total?: number;
   total_venta: number;
   ganancia_bruta: number;
   metodo_pago: string;
+  estado_pago?: string;
   vendedor: string;
   fecha: string;
   estado?: 'completada' | 'anulada';
@@ -124,10 +120,14 @@ interface SesionCaja {
   dinero_esperado?: number;
   diferencia?: number;
   estado: 'abierta' | 'cerrada';
-  usuario_apertura: string;
-  usuario_cierre?: string;
-  observaciones?: string;
-  created_at: string;
+  usuario_apertura?: string;
+  created_at?: string;
+}
+
+interface NotificacionVisual {
+  id: number;
+  tipo: 'exito' | 'error' | 'advertencia' | 'info';
+  mensaje: string;
 }
 
 const esVentaDeHoy = (fechaStr?: string) => {
@@ -140,7 +140,7 @@ const esVentaDeHoy = (fechaStr?: string) => {
 };
 
 export default function DYMSApp() {
-  // 1. Estado de Sesión y Navegación
+  // 1. Sesión y Navegación
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [moduloActivo, setModuloActivo] = useState<'dashboard' | 'pos' | 'ventas' | 'inventario' | 'caja' | 'clientes' | 'gastos' | 'reportes'>('dashboard');
   const [filtroVentasTiempo, setFiltroVentasTiempo] = useState<'hoy' | 'todas'>('hoy');
@@ -148,72 +148,102 @@ export default function DYMSApp() {
 
   // Login
   const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
+  const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loadingLogin, setLoadingLogin] = useState(false);
 
-  // 2. Estado de Datos
+  // 2. Datos Generales
+  const [loading, setLoading] = useState(false);
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [gastos, setGastos] = useState<Gasto[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [cajaActual, setCajaActual] = useState<SesionCaja | null>(null);
   const [historialCierres, setHistorialCierres] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
 
-  // 3. Estado de Apertura y Cierre de Caja
+  // 3. Notificaciones Visuales Integradas (Sin alert popup spam)
+  const [notificaciones, setNotificaciones] = useState<NotificacionVisual[]>([]);
+
+  const mostrarNotificacion = (tipo: 'exito' | 'error' | 'advertencia' | 'info', mensaje: string) => {
+    const id = Date.now() + Math.random();
+    setNotificaciones(prev => [...prev.slice(-3), { id, tipo, mensaje }]);
+    setTimeout(() => {
+      setNotificaciones(prev => prev.filter(n => n.id !== id));
+    }, 4500);
+  };
+
+  // 4. Bloqueos de Seguridad contra Doble Clic
+  const [procesandoVenta, setProcesandoVenta] = useState(false);
+  const [procesandoProducto, setProcesandoProducto] = useState(false);
+  const [procesandoGasto, setProcesandoGasto] = useState(false);
+  const [procesandoCliente, setProcesandoCliente] = useState(false);
+  const [procesandoCaja, setProcesandoCaja] = useState(false);
+  const [procesandoAnulacion, setProcesandoAnulacion] = useState(false);
+
+  // 5. Estado de Caja
   const [montoAperturaInput, setMontoAperturaInput] = useState('');
   const [modalCierreCaja, setModalCierreCaja] = useState(false);
   const [dineroRealContado, setDineroRealContado] = useState('');
   const [obsCierre, setObsCierre] = useState('');
   const [comprobanteCierreData, setComprobanteCierreData] = useState<any | null>(null);
 
-  // 4. Estado de Punto de Venta (POS)
-  const [busquedaProdPOS, setBusquedaProdPOS] = useState('');
-  const [filtroCatPOS, setFiltroCatPOS] = useState('Todas');
-  const [docClientePOS, setDocClientePOS] = useState('');
-  const [telClientePOS, setTelClientePOS] = useState('');
-  const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
+  // 6. POS (Punto de Venta) y Paginación
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [metodoPagoPOS, setMetodoPagoPOS] = useState<'efectivo' | 'transferencia'>('efectivo');
+  const [busquedaProdPOS, setBusquedaProdPOS] = useState('');
+  const [filtroCatPOS, setFiltroCatPOS] = useState('Todas');
+  const [paginaPOS, setPaginaPOS] = useState(1);
+  const prodsPorPagina = 8;
+
+  // Cliente Opcional en POS
+  const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
+  const [busquedaClientePOS, setBusquedaClientePOS] = useState('');
+  const [mostrarDropdownClientes, setMostrarDropdownClientes] = useState(false);
+
+  // 7. Ticket de Venta
   const [ticketVentaData, setTicketVentaData] = useState<any | null>(null);
 
-  // 5. Estado de Inventario y Productos
-  const [busquedaInv, setBusquedaInv] = useState('');
-  const [filtroCatInv, setFiltroCatInv] = useState('Todas');
+  // 8. Inventario y Productos
   const [modalProd, setModalProd] = useState(false);
   const [editandoProdId, setEditandoProdId] = useState<number | null>(null);
   const [prodNombre, setProdNombre] = useState('');
   const [prodCategoria, setProdCategoria] = useState('Purinas y Concentrados');
   const [prodCosto, setProdCosto] = useState('');
-  const [prodMargenDeseado, setProdMargenDeseado] = useState('20');
   const [prodPrecioDetal, setProdPrecioDetal] = useState('');
   const [prodPrecioMayor, setProdPrecioMayor] = useState('');
-  const [prodIVA, setProdIVA] = useState('0');
   const [prodStock, setProdStock] = useState('');
   const [prodStockMin, setProdStockMin] = useState('5');
+  const [prodIva, setProdIva] = useState('0');
   const [prodUnidad, setProdUnidad] = useState('bulto');
+  const [busquedaInv, setBusquedaInv] = useState('');
+  const [filtroCatInv, setFiltroCatInv] = useState('Todas');
 
-  // 6. Estado de Clientes
+  // 9. Clientes Formulario / Edición
   const [modalCliente, setModalCliente] = useState(false);
+  const [editandoClienteId, setEditandoClienteId] = useState<number | null>(null);
   const [cliDoc, setCliDoc] = useState('');
   const [cliNombre, setCliNombre] = useState('');
   const [cliTel, setCliTel] = useState('');
   const [cliDir, setCliDir] = useState('');
   const [busquedaCli, setBusquedaCli] = useState('');
 
-  // 7. Estado de Gastos
+  // 10. Gastos Formulario / Edición (Solo Admin)
   const [modalGasto, setModalGasto] = useState(false);
+  const [editandoGastoId, setEditandoGastoId] = useState<number | null>(null);
   const [gastoCat, setGastoCat] = useState('arriendo');
   const [gastoDesc, setGastoDesc] = useState('');
   const [gastoMonto, setGastoMonto] = useState('');
 
-  // 8. Teléfono Admin (Dueño) y Modal Alertas de Stock
+  // 11. Modal Alertas de Stock y Motivo Anulación
   const [telefonoAdmin, setTelefonoAdmin] = useState('3101234567');
   const [modalAlertasStock, setModalAlertasStock] = useState(false);
+  const [ventaVerMotivo, setVentaVerMotivo] = useState<Venta | null>(null);
 
-  // 9. Inicialización y Carga de Sesión
+  // ==========================================
+  // INICIALIZACIÓN Y PERSISTENCIA (F5 / RECARGA)
+  // ==========================================
   useEffect(() => {
+    // 1. Cargar Usuario
     const sesion = localStorage.getItem('dyms_usuario');
     if (sesion) {
       try {
@@ -222,17 +252,19 @@ export default function DYMSApp() {
         localStorage.removeItem('dyms_usuario');
       }
     }
+    // 2. Teléfono Admin
     const telGuardado = localStorage.getItem('dyms_tel_admin');
     if (telGuardado) {
       setTelefonoAdmin(telGuardado);
     }
+    // 3. Cargar Datos Globales
     cargarDatosGenerales();
   }, []);
 
   const cargarDatosGenerales = async () => {
     setLoading(true);
     try {
-      // 1. Productos
+      // 1. Cargar Productos
       const { data: prods } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
       if (prods && prods.length > 0) {
         setProductos(prods.map(p => ({
@@ -243,44 +275,87 @@ export default function DYMSApp() {
           unidad_medida: p.unidad_medida || 'bulto'
         })));
       } else {
-        // Fallback predeterminado con las categorías clave (bultos, pollos, huevos)
+        // Fallback predeterminado si BD está vacía
         setProductos([
-          { id: 1, nombre: 'Purina Engorde 40kg', categoria: 'Purinas y Concentrados', precio_compra: 95000, precio_venta: 115000, precio_mayorista: 110000, iva_porcentaje: 0, stock: 24, stock_minimo: 5, unidad_medida: 'bulto' },
+          { id: 4, nombre: 'Purina Engorde 40kg', categoria: 'Purinas y Concentrados', precio_compra: 95000, precio_venta: 115000, precio_mayorista: 110000, iva_porcentaje: 0, stock: 24, stock_minimo: 5, unidad_medida: 'bulto' },
           { id: 2, nombre: 'Purina Ponedora 40kg', categoria: 'Purinas y Concentrados', precio_compra: 92000, precio_venta: 110000, precio_mayorista: 106000, iva_porcentaje: 0, stock: 18, stock_minimo: 5, unidad_medida: 'bulto' },
-          { id: 3, nombre: 'Pollo de Engorde Campesino', categoria: 'Pollos y Aves', precio_compra: 16000, precio_venta: 22000, precio_mayorista: 20000, iva_porcentaje: 0, stock: 35, stock_minimo: 8, unidad_medida: 'unidad' },
-          { id: 4, nombre: 'Huevos Tipo AA (Panal 30 Uds)', categoria: 'Huevos', precio_compra: 14000, precio_venta: 18000, precio_mayorista: 16500, iva_porcentaje: 0, stock: 40, stock_minimo: 10, unidad_medida: 'panal' }
+          { id: 6, nombre: 'purina ponedora 50 kg', categoria: 'Purinas y Concentrados', precio_compra: 100000, precio_venta: 125000, precio_mayorista: 120000, iva_porcentaje: 0, stock: 10, stock_minimo: 3, unidad_medida: 'bulto' }
         ]);
       }
 
-      // 2. Ventas
+      // 2. Cargar Ventas
       const { data: vts } = await supabase.from('ventas').select('*').order('fecha', { ascending: false });
-      if (vts) setVentas(vts);
+      if (vts) {
+        setVentas(vts.map(v => {
+          const esAnulada = (v.estado_pago && v.estado_pago.toLowerCase().startsWith('anulada')) || v.estado === 'anulada';
+          let motivo = v.motivo_anulacion || '';
+          if (!motivo && v.estado_pago && v.estado_pago.includes(':')) {
+            motivo = v.estado_pago.split(':')[1]?.trim() || '';
+          }
+          return {
+            ...v,
+            estado: esAnulada ? 'anulada' : 'completada',
+            motivo_anulacion: motivo,
+            subtotal: v.subtotal || v.total_venta,
+            iva_total: v.iva_total || 0,
+            tipo_precio: v.tipo_precio || 'detal'
+          };
+        }));
+      }
 
-      // 3. Gastos
+      // 3. Cargar Gastos
       const { data: gts } = await supabase.from('gastos').select('*').order('fecha', { ascending: false });
       if (gts) setGastos(gts);
 
-      // 4. Clientes
+      // 4. Cargar Clientes (con respaldo localStorage)
       const { data: clis } = await supabase.from('clientes').select('*').order('nombre', { ascending: true });
-      if (clis) setClientes(clis);
+      const clisLocal = localStorage.getItem('dyms_clientes');
+      if (clis && clis.length > 0) {
+        setClientes(clis);
+      } else if (clisLocal) {
+        try { setClientes(JSON.parse(clisLocal)); } catch {}
+      }
 
-      // 5. Estado de Caja
-      const hoy = new Date().toISOString().split('T')[0];
+      // 5. PERSISTENCIA DE CAJA: No cerrar en recarga (F5)
+      // Primero verificar si en Supabase la última caja está abierta
       const { data: cj } = await supabase.from('caja').select('*').order('id', { ascending: false }).limit(1);
-      if (cj && cj.length > 0) {
-        setCajaActual({
+      const cajaGuardadaLocal = localStorage.getItem('dyms_caja_activa');
+
+      if (cj && cj.length > 0 && cj[0].estado === 'abierta') {
+        const sesionAbierta: SesionCaja = {
           id: cj[0].id,
           fecha: cj[0].fecha,
           monto_inicial: Number(cj[0].monto_inicial || 0),
-          estado: cj[0].estado || 'abierta',
-          usuario_apertura: cj[0].usuario_apertura || 'Admin',
+          estado: 'abierta',
+          usuario_apertura: 'Admin/Vendedor',
           created_at: cj[0].created_at
-        });
+        };
+        setCajaActual(sesionAbierta);
+        localStorage.setItem('dyms_caja_activa', JSON.stringify(sesionAbierta));
+      } else if (cajaGuardadaLocal) {
+        try {
+          const parsed = JSON.parse(cajaGuardadaLocal);
+          if (parsed && parsed.estado === 'abierta') {
+            setCajaActual(parsed);
+          } else {
+            setCajaActual(null);
+          }
+        } catch {
+          setCajaActual(null);
+        }
+      } else {
+        setCajaActual(null);
       }
 
       // 6. Historial Cierres
       const { data: cierres } = await supabase.from('cierres_caja').select('*').order('hora_cierre', { ascending: false });
-      if (cierres) setHistorialCierres(cierres);
+      const cierresLocal = localStorage.getItem('dyms_cierres');
+      if (cierres && cierres.length > 0) {
+        setHistorialCierres(cierres);
+      } else if (cierresLocal) {
+        try { setHistorialCierres(JSON.parse(cierresLocal)); } catch {}
+      }
+
     } catch (e) {
       console.error('Error cargando datos de Supabase:', e);
     } finally {
@@ -297,357 +372,230 @@ export default function DYMSApp() {
     }).format(val || 0);
   };
 
-  // Autenticación DYM'S
-  const handleLogin = async (e: React.FormEvent) => {
+  // ==========================================
+  // AUTENTICACIÓN
+  // ==========================================
+  const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     setLoadingLogin(true);
 
-    const email = loginEmail.trim().toLowerCase();
+    setTimeout(() => {
+      const emailNorm = loginEmail.trim().toLowerCase();
+      const passNorm = loginPass.trim();
 
-    // Acceso directo garantizado
-    if (email === 'admin@dyms.com' || email === 'admin@purina.com') {
-      if (loginPassword === 'admin123') {
+      if (emailNorm === 'admin@dyms.com' && passNorm === 'admin123') {
         const u: Usuario = { id: 1, email: 'admin@dyms.com', nombre: 'Administrador DYM’S', rol: 'admin' };
         setUsuario(u);
         localStorage.setItem('dyms_usuario', JSON.stringify(u));
         setLoadingLogin(false);
+        mostrarNotificacion('exito', '¡Bienvenido Administrador a DYM’S!');
         return;
       }
-    }
 
-    if (email === 'vendedor@dyms.com' || email === 'vendedor@purina.com') {
-      if (loginPassword === 'vendedor123') {
-        const u: Usuario = { id: 2, email: 'vendedor@dyms.com', nombre: 'Vendedor DYM’S', rol: 'vendedor' };
+      if (emailNorm === 'vendedor@dyms.com' && passNorm === 'vendedor123') {
+        const u: Usuario = { id: 2, email: 'vendedor@dyms.com', nombre: 'Vendedor de Turno', rol: 'vendedor' };
         setUsuario(u);
         localStorage.setItem('dyms_usuario', JSON.stringify(u));
         setLoadingLogin(false);
+        mostrarNotificacion('exito', '¡Bienvenido al Punto de Venta DYM’S!');
         return;
       }
-    }
 
-    // Consulta en Supabase
-    try {
-      const { data } = await supabase.from('usuarios').select('*').eq('email', email).eq('password', loginPassword).single();
-      if (data) {
-        const u: Usuario = { id: data.id, email: data.email, nombre: data.nombre, rol: data.rol };
-        setUsuario(u);
-        localStorage.setItem('dyms_usuario', JSON.stringify(u));
-      } else {
-        setLoginError('Credenciales incorrectas. Verifica tu correo y contraseña.');
-      }
-    } catch {
-      setLoginError('No se pudo verificar la cuenta. Usa admin@dyms.com / admin123');
-    } finally {
+      setLoginError('Credenciales incorrectas. Verifica tu correo y contraseña.');
       setLoadingLogin(false);
-    }
+    }, 400);
   };
 
   const handleLogout = () => {
     localStorage.removeItem('dyms_usuario');
     setUsuario(null);
     setCarrito([]);
+    mostrarNotificacion('info', 'Has cerrado tu sesión.');
   };
 
   // ==========================================
-  // LÓGICA DE CONTROL DE CAJA
+  // 1. CÁLCULOS DE CAJA Y DINERO DISPONIBLE
   // ==========================================
   const totalVentasEfectivoHoy = useMemo(() => {
     return ventas
-      .filter(v => esVentaDeHoy(v.fecha) && v.metodo_pago === 'efectivo' && v.estado !== 'anulada')
-      .reduce((acc, v) => acc + Number(v.total_venta || 0), 0);
+      .filter(v => esVentaDeHoy(v.fecha) && v.estado !== 'anulada' && v.metodo_pago === 'efectivo')
+      .reduce((acc, v) => acc + (Number(v.total_venta) || 0), 0);
   }, [ventas]);
 
   const totalVentasTransfHoy = useMemo(() => {
     return ventas
-      .filter(v => esVentaDeHoy(v.fecha) && v.metodo_pago === 'transferencia' && v.estado !== 'anulada')
-      .reduce((acc, v) => acc + Number(v.total_venta || 0), 0);
+      .filter(v => esVentaDeHoy(v.fecha) && v.estado !== 'anulada' && v.metodo_pago === 'transferencia')
+      .reduce((acc, v) => acc + (Number(v.total_venta) || 0), 0);
   }, [ventas]);
 
   const totalGastosHoy = useMemo(() => {
     return gastos
       .filter(g => esVentaDeHoy(g.fecha))
-      .reduce((acc, g) => acc + Number(g.monto || 0), 0);
+      .reduce((acc, g) => acc + (Number(g.monto) || 0), 0);
   }, [gastos]);
 
-  const dineroEsperadoEnCaja = useMemo(() => {
+  // Efectivo físico real en gaveta (Base + Ventas Efectivo - Gastos)
+  const efectivoFisicoEnCaja = useMemo(() => {
     const base = cajaActual && cajaActual.estado === 'abierta' ? cajaActual.monto_inicial : 0;
     return base + totalVentasEfectivoHoy - totalGastosHoy;
   }, [cajaActual, totalVentasEfectivoHoy, totalGastosHoy]);
 
+  // Total disponible en caja: Efectivo + Transferencias (Utilizado para validar operaciones)
+  const dineroTotalDisponibleEnCaja = useMemo(() => {
+    const base = cajaActual && cajaActual.estado === 'abierta' ? cajaActual.monto_inicial : 0;
+    return base + totalVentasEfectivoHoy + totalVentasTransfHoy - totalGastosHoy;
+  }, [cajaActual, totalVentasEfectivoHoy, totalVentasTransfHoy, totalGastosHoy]);
+
+  // Inversión Total en Inventario
+  const valorTotalInversion = useMemo(() => {
+    return productos.reduce((acc, p) => acc + (p.stock * p.precio_compra), 0);
+  }, [productos]);
+
   // Apertura de Caja
   const handleAperturaCaja = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (procesandoCaja) return;
     const monto = Number(montoAperturaInput);
     if (isNaN(monto) || monto < 0) {
-      alert('Ingresa un monto inicial válido.');
+      mostrarNotificacion('advertencia', 'Ingresa un monto inicial válido (mayor o igual a $0).');
       return;
     }
 
+    setProcesandoCaja(true);
     try {
       const hoy = new Date().toISOString().split('T')[0];
-      const nuevaCaja = {
+      const nuevaCajaDB = {
+        fecha: hoy,
+        monto_inicial: monto,
+        estado: 'abierta'
+      };
+
+      const { data, error } = await supabase.from('caja').insert([nuevaCajaDB]).select().single();
+      const sesionAbierta: SesionCaja = {
+        id: (!error && data) ? data.id : Date.now(),
         fecha: hoy,
         monto_inicial: monto,
         estado: 'abierta',
-        usuario_apertura: usuario?.nombre || 'Admin'
+        usuario_apertura: usuario?.nombre || 'Admin',
+        created_at: new Date().toISOString()
       };
 
-      const { data, error } = await supabase.from('caja').insert([nuevaCaja]).select().single();
-      if (!error && data) {
-        setCajaActual({
-          id: data.id,
-          fecha: data.fecha,
-          monto_inicial: Number(data.monto_inicial),
-          estado: 'abierta',
-          usuario_apertura: data.usuario_apertura,
-          created_at: data.created_at
-        });
-      } else {
-        // Fallback local
-        setCajaActual({
-          id: Date.now(),
-          fecha: hoy,
-          monto_inicial: monto,
-          estado: 'abierta',
-          usuario_apertura: usuario?.nombre || 'Admin',
-          created_at: new Date().toISOString()
-        });
-      }
-
+      setCajaActual(sesionAbierta);
+      localStorage.setItem('dyms_caja_activa', JSON.stringify(sesionAbierta));
       setMontoAperturaInput('');
-      alert('¡Caja abierta exitosamente para la jornada!');
+      mostrarNotificacion('exito', '¡Caja abierta exitosamente para la jornada!');
     } catch (err: any) {
-      alert('Error abriendo caja: ' + err.message);
+      mostrarNotificacion('error', 'Error abriendo caja: ' + err.message);
+    } finally {
+      setProcesandoCaja(false);
     }
   };
 
-  // Cierre Diario de Caja
+  // Cierre Diario de Caja con Validaciones Estrictas
   const handleConfirmarCierreCaja = async () => {
-    if (!cajaActual || cajaActual.estado !== 'abierta') return;
+    if (!cajaActual || cajaActual.estado !== 'abierta' || procesandoCaja) return;
     const real = Number(dineroRealContado);
     if (isNaN(real) || real < 0) {
-      alert('Ingresa el monto de dinero real contado en caja.');
+      mostrarNotificacion('advertencia', 'Ingresa el monto de dinero físico contado en caja.');
       return;
     }
 
-    const dif = real - dineroEsperadoEnCaja;
-    const confirmacion = window.confirm(
-      `¿Estás seguro de cerrar la caja de hoy?\n\n- Esperado: ${formatoMoneda(dineroEsperadoEnCaja)}\n- Real Contado: ${formatoMoneda(real)}\n- Diferencia: ${formatoMoneda(dif)}\n\nUna vez cerrada, no se podrán registrar nuevas ventas hasta abrir una nueva caja.`
-    );
-    if (!confirmacion) return;
+    // 19.1 No permitir caja negativa
+    if (efectivoFisicoEnCaja < 0 || dineroTotalDisponibleEnCaja < 0) {
+      mostrarNotificacion('error', '❌ NO SE PERMITE CERRAR CAJA EN NEGATIVO. Debes corregir los egresos o cuadrar los ingresos antes de cerrar.');
+      return;
+    }
 
+    // Descuadre de caja contra el dinero físico esperado
+    const dif = real - efectivoFisicoEnCaja;
+
+    // 19.2 Alerta clara de descuadre
+    if (dif < 0) {
+      mostrarNotificacion('advertencia', `⚠️ Se detectó un faltante de dinero en caja correspondiente al vendedor: ${formatoMoneda(Math.abs(dif))}. Esperado: ${formatoMoneda(efectivoFisicoEnCaja)} vs Real: ${formatoMoneda(real)}.`);
+    } else if (dif > 0) {
+      mostrarNotificacion('info', `ℹ️ Se detectó un sobrante de dinero en caja de: +${formatoMoneda(dif)}.`);
+    }
+
+    setProcesandoCaja(true);
     const datosCierre = {
       fecha: cajaActual.fecha,
       monto_inicial: cajaActual.monto_inicial,
       ventas_efectivo: totalVentasEfectivoHoy,
       ventas_transferencia: totalVentasTransfHoy,
       total_gastos: totalGastosHoy,
-      dinero_esperado: dineroEsperadoEnCaja,
+      dinero_esperado: efectivoFisicoEnCaja,
       dinero_real: real,
       diferencia: dif,
-      observaciones: obsCierre.trim() || 'Cierre regular de jornada',
+      observaciones: obsCierre.trim() || 'Cierre de jornada regular',
       responsable: usuario?.nombre || 'Admin',
       hora_cierre: new Date().toISOString()
     };
 
     try {
-      // 1. Actualizar estado en tabla caja
-      await supabase.from('caja').update({ estado: 'cerrada' }).eq('id', cajaActual.id);
-      // 2. Guardar en historial de cierres
+      await supabase.from('caja').update({ estado: 'cerrada', monto_cierre: real }).eq('id', cajaActual.id);
       await supabase.from('cierres_caja').insert([datosCierre]);
     } catch (e) {
-      console.warn('Guardado en Supabase con fallback local:', e);
+      console.warn('Cierre sincronizado localmente:', e);
     }
 
+    // Actualizar estado y persistencia
     setCajaActual(prev => prev ? { ...prev, estado: 'cerrada' } : null);
-    setHistorialCierres(prev => [datosCierre, ...prev]);
+    localStorage.removeItem('dyms_caja_activa');
+
+    const nuevosCierres = [datosCierre, ...historialCierres];
+    setHistorialCierres(nuevosCierres);
+    localStorage.setItem('dyms_cierres', JSON.stringify(nuevosCierres));
+
     setComprobanteCierreData(datosCierre);
     setModalCierreCaja(false);
     setDineroRealContado('');
     setObsCierre('');
-    alert('¡Caja cerrada correctamente! Puedes imprimir el comprobante a continuación.');
+    setProcesandoCaja(false);
+    mostrarNotificacion('exito', '¡Caja cerrada correctamente! Comprobante emitido.');
   };
 
   // ==========================================
-  // LÓGICA DE CLIENTES
+  // 5. VENTAS POS & CARRITO
   // ==========================================
-  const buscarClientePorDoc = (doc: string) => {
-    setDocClientePOS(doc);
-    const encontrado = clientes.find(c => c.documento === doc.trim());
-    if (encontrado) {
-      setClienteSeleccionado(encontrado);
-      if (encontrado.telefono) {
-        setTelClientePOS(encontrado.telefono);
-      }
-    } else {
-      setClienteSeleccionado(null);
-    }
-  };
 
-  const handleGuardarCliente = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cliDoc.trim() || !cliNombre.trim()) {
-      alert('Documento y Nombre son obligatorios.');
-      return;
-    }
+  // Paginación y Filtrado de Productos POS
+  const productosFiltradosPOS = useMemo(() => {
+    return productos.filter(p => {
+      const matchNombre = p.nombre.toLowerCase().includes(busquedaProdPOS.toLowerCase());
+      const matchCat = filtroCatPOS === 'Todas' || p.categoria === filtroCatPOS;
+      return matchNombre && matchCat;
+    });
+  }, [productos, busquedaProdPOS, filtroCatPOS]);
 
-    if (clientes.some(c => c.documento.trim() === cliDoc.trim())) {
-      alert('¡Ya existe un cliente registrado con ese número de documento!');
-      return;
-    }
+  const totalPaginasPOS = Math.max(1, Math.ceil(productosFiltradosPOS.length / prodsPorPagina));
 
-    const nuevo = {
-      documento: cliDoc.trim(),
-      nombre: cliNombre.trim(),
-      telefono: cliTel.trim(),
-      direccion: cliDir.trim()
-    };
+  const productosPaginadosPOS = useMemo(() => {
+    const inicio = (paginaPOS - 1) * prodsPorPagina;
+    return productosFiltradosPOS.slice(inicio, inicio + prodsPorPagina);
+  }, [productosFiltradosPOS, paginaPOS]);
 
-    try {
-      const { data, error } = await supabase.from('clientes').insert([nuevo]).select().single();
-      if (!error && data) {
-        setClientes(prev => [...prev, data]);
-      } else {
-        setClientes(prev => [...prev, { ...nuevo, id: Date.now() }]);
-      }
-      setCliDoc('');
-      setCliNombre('');
-      setCliTel('');
-      setCliDir('');
-      setModalCliente(false);
-      alert('¡Cliente registrado con éxito en DYM’S!');
-    } catch (err: any) {
-      alert('Error guardando cliente: ' + err.message);
-    }
-  };
-
-  // ==========================================
-  // LÓGICA DE INVENTARIO Y SUGERENCIA DE PRECIOS
-  // ==========================================
-  // Calculadora de precio sugerido
-  const calcularPrecioSugerido = (costo: number, margenPorcentaje: number) => {
-    if (!costo || costo <= 0) return 0;
-    return Math.round(costo * (1 + margenPorcentaje / 100));
-  };
-
-  const handleCostoChange = (val: string) => {
-    setProdCosto(val);
-    const c = Number(val);
-    const m = Number(prodMargenDeseado) || 20;
-    if (c > 0) {
-      const sugerido = calcularPrecioSugerido(c, m);
-      setProdPrecioDetal(String(sugerido));
-      setProdPrecioMayor(String(Math.round(sugerido * 0.93))); // ~7% descuento mayorista sugerido
-    }
-  };
-
-  const handleMargenChange = (val: string) => {
-    setProdMargenDeseado(val);
-    const c = Number(prodCosto);
-    const m = Number(val);
-    if (c > 0) {
-      const sugerido = calcularPrecioSugerido(c, m);
-      setProdPrecioDetal(String(sugerido));
-      setProdPrecioMayor(String(Math.round(sugerido * 0.93)));
-    }
-  };
-
-  const handleGuardarProducto = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prodNombre.trim()) {
-      alert('El nombre del producto es obligatorio.');
-      return;
-    }
-
-    // Evitar nombres duplicados
-    const nombreNormalizado = prodNombre.trim().toLowerCase();
-    const duplicado = productos.some(p => p.nombre.toLowerCase() === nombreNormalizado && p.id !== editandoProdId);
-    if (duplicado) {
-      alert('¡Ya existe un producto registrado con ese mismo nombre en DYM’S!');
-      return;
-    }
-
-    const productoPayload = {
-      nombre: prodNombre.trim(),
-      categoria: prodCategoria,
-      precio_compra: Number(prodCosto) || 0,
-      precio_venta: Number(prodPrecioDetal) || 0,
-      precio_mayorista: Number(prodPrecioMayor) || Number(prodPrecioDetal) || 0,
-      iva_porcentaje: Number(prodIVA) || 0,
-      stock: Number(prodStock) || 0,
-      stock_minimo: Number(prodStockMin) || 5,
-      unidad_medida: prodUnidad
-    };
-
-    try {
-      if (editandoProdId) {
-        // Actualizar
-        await supabase.from('productos').update(productoPayload).eq('id', editandoProdId);
-        setProductos(prev => prev.map(p => p.id === editandoProdId ? { ...p, ...productoPayload } : p));
-        alert('Producto actualizado con éxito.');
-      } else {
-        // Insertar
-        const { data, error } = await supabase.from('productos').insert([productoPayload]).select().single();
-        if (!error && data) {
-          setProductos(prev => [...prev, data]);
-        } else {
-          setProductos(prev => [...prev, { ...productoPayload, id: Date.now() }]);
-        }
-        alert('Producto creado con éxito en el catálogo de DYM’S.');
-      }
-
-      setModalProd(false);
-      setEditandoProdId(null);
-      setProdNombre('');
-      setProdCosto('');
-      setProdPrecioDetal('');
-      setProdPrecioMayor('');
-      setProdStock('');
-    } catch (err: any) {
-      alert('Error guardando producto: ' + err.message);
-    }
-  };
-
-  const handleEliminarProducto = async (id: number) => {
-    if (!window.confirm('¿Seguro que deseas eliminar este producto del inventario?')) return;
-    try {
-      await supabase.from('productos').delete().eq('id', id);
-      setProductos(prev => prev.filter(p => p.id !== id));
-    } catch (err: any) {
-      alert('Error eliminando producto: ' + err.message);
-    }
-  };
-
-  // Valor total de inversión en inventario
-  const valorTotalInversion = useMemo(() => {
-    return productos.reduce((acc, p) => acc + (p.stock * p.precio_compra), 0);
-  }, [productos]);
-
-  // ==========================================
-  // LÓGICA DE VENTAS (POS)
-  // ==========================================
-  const agregarAlCarrito = (prod: Producto, tipoPrecio: 'detal' | 'mayorista' = 'detal') => {
+  // 9. VENTA AL DETAL Y MAYORISTA: Mismo stock y referencia
+  const agregarAlCarrito = (prod: Producto, tipoPrecio: 'detal' | 'mayorista') => {
     if (!cajaActual || cajaActual.estado !== 'abierta') {
-      alert('⚠️ LA CAJA ESTÁ CERRADA.\n\nDebes abrir la caja del día en el módulo de "Control de Caja" antes de registrar ventas.');
+      mostrarNotificacion('advertencia', '⚠️ Caja Cerrada: Debes abrir la caja para poder facturar.');
       return;
     }
 
-    if (prod.stock <= 0) {
-      alert('Este producto no tiene existencias disponibles en bodega.');
-      return;
-    }
+    // Validar cantidad total en carrito sumando detal y mayorista para la MISMA referencia
+    const totalEnCarritoMismaReferencia = carrito
+      .filter(i => i.producto.id === prod.id)
+      .reduce((sum, i) => sum + i.cantidad, 0);
 
-    const itemExistente = carrito.find(i => i.producto.id === prod.id && i.tipo_precio === tipoPrecio);
-    const cantActual = itemExistente ? itemExistente.cantidad : 0;
-
-    if (cantActual + 1 > prod.stock) {
-      alert(`No puedes agregar más de ${prod.stock} unidades disponibles.`);
+    if (totalEnCarritoMismaReferencia + 1 > prod.stock) {
+      mostrarNotificacion('error', `Existencias insuficientes: Solo hay ${prod.stock} unidades disponibles en inventario.`);
       return;
     }
 
     const precio = tipoPrecio === 'mayorista' ? prod.precio_mayorista : prod.precio_venta;
     const ivaMonto = (precio * (prod.iva_porcentaje || 0)) / 100;
+
+    const itemExistente = carrito.find(i => i.producto.id === prod.id && i.tipo_precio === tipoPrecio);
 
     if (itemExistente) {
       setCarrito(prev => prev.map(i => {
@@ -680,15 +628,27 @@ export default function DYMSApp() {
       if (nueva <= 0) {
         return prev.filter((_, i) => i !== idx);
       }
-      if (nueva > item.producto.stock) {
-        alert(`Stock máximo disponible: ${item.producto.stock}`);
+
+      // Validar contra el stock total compartido de la referencia
+      const otrasCantidades = prev
+        .filter((it, i) => i !== idx && it.producto.id === item.producto.id)
+        .reduce((sum, it) => sum + it.cantidad, 0);
+
+      if (nueva + otrasCantidades > item.producto.stock) {
+        mostrarNotificacion('advertencia', `Existencias máximas disponibles: ${item.producto.stock}`);
         return prev;
       }
+
       const sub = nueva * item.precio_aplicado;
       const iva = (sub * (item.producto.iva_porcentaje || 0)) / 100;
       const act = { ...item, cantidad: nueva, subtotal: sub, iva_monto: iva, total: sub + iva };
       return prev.map((it, i) => i === idx ? act : it);
     });
+  };
+
+  // 7.2 Eliminar producto completo del carrito con la Papelera
+  const eliminarDelCarrito = (idx: number) => {
+    setCarrito(prev => prev.filter((_, i) => i !== idx));
   };
 
   const totalesCarrito = useMemo(() => {
@@ -700,30 +660,63 @@ export default function DYMSApp() {
     return { subtotal, iva, total, costo, ganancia };
   }, [carrito]);
 
+  // 10 & 23 & 25. PROCESAR VENTA ATÓMICA CON PROTECCIÓN DOBLE CLIC
   const handleProcesarVenta = async () => {
+    if (procesandoVenta) return;
+
     if (!cajaActual || cajaActual.estado !== 'abierta') {
-      alert('⚠️ Caja Cerrada: Debes abrir la caja para poder facturar.');
+      mostrarNotificacion('advertencia', '⚠️ Caja Cerrada: Debes abrir la caja para poder facturar.');
       return;
     }
 
     if (carrito.length === 0) {
-      alert('El carrito de compras está vacío.');
+      mostrarNotificacion('advertencia', 'El carrito de compras está vacío.');
       return;
     }
 
+    setProcesandoVenta(true);
+
     const clienteNombreFinal = clienteSeleccionado ? clienteSeleccionado.nombre : 'Cliente General';
-    const clienteDocFinal = clienteSeleccionado ? clienteSeleccionado.documento : (docClientePOS || 'C.C.');
-    const clienteTelFinal = telClientePOS.trim() || (clienteSeleccionado ? clienteSeleccionado.telefono : '');
+    const clienteDocFinal = clienteSeleccionado ? clienteSeleccionado.documento : 'C.C.';
+    const clienteTelFinal = clienteSeleccionado ? clienteSeleccionado.telefono : '';
+
+    // Agrupar items por referencia y tipo de precio (22. Agrupación de ventas)
+    const stockADescontarPorProducto = new Map<number, number>();
+    carrito.forEach(i => {
+      stockADescontarPorProducto.set(i.producto.id, (stockADescontarPorProducto.get(i.producto.id) || 0) + i.cantidad);
+    });
 
     const nuevasVentas: Venta[] = [];
 
     try {
+      // 1. Insertar cada venta en Supabase respetando exactamente las columnas de la tabla
       for (const item of carrito) {
-        const ventaRecord = {
+        const ventaRecordDB = {
+          producto_id: item.producto.id,
+          nombre_producto: item.producto.nombre,
+          cantidad: item.cantidad,
+          precio_unitario: item.precio_aplicado,
+          costo_unitario: item.producto.precio_compra,
+          total_venta: item.total,
+          ganancia_bruta: item.total - (item.cantidad * item.producto.precio_compra),
+          metodo_pago: metodoPagoPOS,
+          estado_pago: 'pagado',
+          cliente_nombre: clienteNombreFinal,
+          vendedor: usuario?.nombre || 'Vendedor'
+        };
+
+        const { data, error } = await supabase.from('ventas').insert([ventaRecordDB]).select().single();
+        if (error) {
+          console.error('Error insertando venta en Supabase:', error);
+          throw new Error('Error al registrar venta en base de datos: ' + error.message);
+        }
+
+        nuevasVentas.push({
+          id: data ? data.id : Date.now() + Math.random(),
+          producto_id: item.producto.id,
           cliente_documento: clienteDocFinal,
           cliente_nombre: clienteNombreFinal,
           nombre_producto: item.producto.nombre,
-          categoria_producto: item.producto.categoria,
           cantidad: item.cantidad,
           tipo_precio: item.tipo_precio,
           precio_unitario: item.precio_aplicado,
@@ -731,36 +724,39 @@ export default function DYMSApp() {
           subtotal: item.subtotal,
           iva_total: item.iva_monto,
           total_venta: item.total,
-          ganancia_bruta: item.total - (item.cantidad * item.producto.precio_compra),
+          ganancia_bruta: ventaRecordDB.ganancia_bruta,
           metodo_pago: metodoPagoPOS,
+          estado_pago: 'pagado',
           vendedor: usuario?.nombre || 'Vendedor',
-          estado: 'completada' as const
-        };
-
-        // 1. Insertar venta en BD
-        await supabase.from('ventas').insert([ventaRecord]);
-
-        // 2. Descontar Stock
-        const nuevoStock = item.producto.stock - item.cantidad;
-        await supabase.from('productos').update({ stock: nuevoStock }).eq('id', item.producto.id);
-
-        nuevasVentas.push({ ...ventaRecord, id: Date.now() + Math.random(), fecha: new Date().toISOString() });
+          fecha: data ? data.fecha : new Date().toISOString(),
+          estado: 'completada'
+        });
       }
 
-      // Actualizar estado local
+      // 2. Descontar Stock atómicamente de la base de datos (única referencia para detal y mayorista)
+      for (const [prodId, cantADescontar] of stockADescontarPorProducto.entries()) {
+        const prodActual = productos.find(p => p.id === prodId);
+        if (prodActual) {
+          const nuevoStock = Math.max(0, prodActual.stock - cantADescontar);
+          await supabase.from('productos').update({ stock: nuevoStock }).eq('id', prodId);
+        }
+      }
+
+      // 3. Actualizar estado local sincronizado
       setVentas(prev => [...nuevasVentas, ...prev]);
       setProductos(prev => prev.map(p => {
-        const enCarro = carrito.find(c => c.producto.id === p.id);
-        return enCarro ? { ...p, stock: p.stock - enCarro.cantidad } : p;
+        const descuento = stockADescontarPorProducto.get(p.id);
+        return descuento ? { ...p, stock: Math.max(0, p.stock - descuento) } : p;
       }));
 
-      // Preparar Comprobante Ticket
+      // Preparar Ticket
       const ticket = {
         numero: Math.floor(100000 + Math.random() * 900000),
         fecha: new Date().toLocaleString(),
         cliente: clienteNombreFinal,
         documento: clienteDocFinal,
         telefono: clienteTelFinal,
+        esClienteRegistrado: !!clienteSeleccionado,
         items: [...carrito],
         subtotal: totalesCarrito.subtotal,
         iva: totalesCarrito.iva,
@@ -772,210 +768,379 @@ export default function DYMSApp() {
       setTicketVentaData(ticket);
       setCarrito([]);
       setClienteSeleccionado(null);
-      setDocClientePOS('');
-      setTelClientePOS('');
-      alert('¡Venta registrada exitosamente en DYM’S!');
+      setBusquedaClientePOS('');
+      mostrarNotificacion('exito', '¡Venta registrada y descontada del inventario exitosamente!');
     } catch (err: any) {
-      alert('Error registrando venta: ' + err.message);
+      mostrarNotificacion('error', 'Error al procesar la venta: ' + err.message);
+    } finally {
+      setProcesandoVenta(false);
     }
   };
 
   // ==========================================
-  // ANULACIÓN Y DEVOLUCIÓN DE VENTAS
+  // 13 & 20. ANULACIÓN DE VENTAS (ADMIN & VENDEDOR)
   // ==========================================
   const handleAnularVenta = async (venta: Venta) => {
-    if (usuario?.rol !== 'admin') {
-      alert('Solo el Administrador tiene autorización para anular ventas y devolver inventario.');
-      return;
-    }
+    if (procesandoAnulacion) return;
 
     if (venta.estado === 'anulada') {
-      alert('Esta venta ya se encuentra anulada.');
+      mostrarNotificacion('advertencia', 'Esta venta ya se encuentra anulada.');
       return;
     }
 
-    const confirmar = confirm(
-      `¿Deseas anular la venta #${venta.id}?\n\n` +
-      `• Producto: ${venta.cantidad}x ${venta.nombre_producto}\n` +
-      `• Total Cobrado: ${formatoMoneda(venta.total_venta)}\n` +
-      `• Cliente: ${venta.cliente_nombre}\n\n` +
-      `Esta acción devolverá ${venta.cantidad} unidad(es) de vuelta al inventario y descontará el dinero de la caja.`
-    );
-    if (!confirmar) return;
-
-    const motivo = prompt('Ingresa el motivo de la anulación (ej: Error de digitación, Devolución de cliente):', 'Error de facturación');
+    const motivo = prompt('Ingresa el motivo de anulación (MÁXIMO 40 CARACTERES):', 'Devolución de cliente');
     if (motivo === null) return;
 
+    const motivoLimpio = motivo.trim().slice(0, 40);
+    if (!motivoLimpio) {
+      mostrarNotificacion('advertencia', 'El motivo de anulación es obligatorio.');
+      return;
+    }
+
+    setProcesandoAnulacion(true);
     try {
-      // 1. Devolver Stock del Producto
-      const prod = productos.find(p => p.nombre.toLowerCase().trim() === venta.nombre_producto.toLowerCase().trim());
-      if (prod) {
-        const nuevoStock = prod.stock + venta.cantidad;
-        setProductos(prev => prev.map(p => p.id === prod.id ? { ...p, stock: nuevoStock } : p));
-        try {
-          await supabase.from('productos').update({ stock: nuevoStock }).eq('id', prod.id);
-        } catch (e) {
-          console.warn('Actualizado localmente en productos', e);
-        }
+      // 1. Devolver Stock del Producto a la base de datos
+      const prodRelacionado = productos.find(p => p.id === venta.producto_id || p.nombre === venta.nombre_producto);
+      if (prodRelacionado) {
+        const nuevoStock = prodRelacionado.stock + venta.cantidad;
+        await supabase.from('productos').update({ stock: nuevoStock }).eq('id', prodRelacionado.id);
+        setProductos(prev => prev.map(p => p.id === prodRelacionado.id ? { ...p, stock: nuevoStock } : p));
       }
 
-      // 2. Marcar Venta como Anulada
-      const ventaActualizada: Venta = { 
-        ...venta, 
-        estado: 'anulada', 
-        motivo_anulacion: motivo.trim() || 'Anulación autorizada' 
+      // 2. Actualizar estado en Supabase guardando el motivo en estado_pago
+      const textoEstado = `anulada: ${motivoLimpio}`;
+      await supabase.from('ventas').update({ estado_pago: textoEstado }).eq('id', venta.id);
+
+      // 3. Actualizar estado local
+      const ventaActualizada: Venta = {
+        ...venta,
+        estado: 'anulada',
+        estado_pago: textoEstado,
+        motivo_anulacion: motivoLimpio
       };
 
-      try {
-        await supabase.from('ventas').update({ 
-          estado: 'anulada', 
-          motivo_anulacion: ventaActualizada.motivo_anulacion 
-        }).eq('id', venta.id);
-      } catch (e) {
-        console.warn('Actualizado localmente en ventas', e);
-      }
-
       setVentas(prev => prev.map(v => v.id === venta.id ? ventaActualizada : v));
-
-      alert(
-        `✅ Venta #${venta.id} anulada con éxito.\n\n` +
-        `• Se devolvieron +${venta.cantidad} unidad(es) al stock de "${venta.nombre_producto}".\n` +
-        `• Se descontaron ${formatoMoneda(venta.total_venta)} del saldo esperado en caja.`
-      );
+      mostrarNotificacion('exito', `Venta #${venta.id} anulada. Se devolvieron +${venta.cantidad} unidades al inventario.`);
     } catch (err: any) {
-      alert('Error anulando la venta: ' + err.message);
+      mostrarNotificacion('error', 'Error anulando venta: ' + err.message);
+    } finally {
+      setProcesandoAnulacion(false);
     }
   };
 
   // ==========================================
-  // GASTOS OPERACIONALES
+  // 14 & 21. PRODUCTOS (SOLO ADMIN PUEDE CREAR/EDITAR)
   // ==========================================
-  const handleGuardarGasto = async (e: React.FormEvent) => {
+  const handleGuardarProducto = async (e: React.FormEvent) => {
     e.preventDefault();
-    const m = Number(gastoMonto);
-    if (!gastoDesc.trim() || isNaN(m) || m <= 0) {
-      alert('Ingresa descripción y monto válido.');
+    if (procesandoProducto) return;
+
+    if (usuario?.rol !== 'admin') {
+      mostrarNotificacion('error', 'Solo el Administrador tiene permiso para crear o editar productos.');
       return;
     }
 
-    const payload = {
-      categoria: gastoCat,
-      descripcion: gastoDesc.trim(),
-      monto: m
+    const c = Number(prodCosto);
+    const pD = Number(prodPrecioDetal);
+    const pM = Number(prodPrecioMayor);
+    const st = Number(prodStock);
+    const stM = Number(prodStockMin);
+    const iv = Number(prodIva);
+
+    if (!prodNombre.trim()) {
+      mostrarNotificacion('advertencia', 'El nombre del producto es obligatorio.');
+      return;
+    }
+
+    // 14.1 Precio de compra vs precio de venta
+    if (pD < c) {
+      mostrarNotificacion('error', `El precio de venta detal (${formatoMoneda(pD)}) no puede ser menor que el costo de compra (${formatoMoneda(c)}).`);
+      return;
+    }
+
+    // 14.2 Stock actual no negativo
+    if (st < 0 || isNaN(st)) {
+      mostrarNotificacion('error', 'El stock de existencias no puede ser negativo.');
+      return;
+    }
+
+    // 14.3 Stock mínimo no negativo
+    if (stM < 0 || isNaN(stM)) {
+      mostrarNotificacion('error', 'El stock mínimo no puede ser negativo.');
+      return;
+    }
+
+    setProcesandoProducto(true);
+
+    const prodData = {
+      nombre: prodNombre.trim(),
+      categoria: prodCategoria,
+      precio_compra: c,
+      precio_venta: pD,
+      precio_mayorista: pM || pD * 0.95,
+      iva_porcentaje: iv || 0,
+      stock: st,
+      stock_minimo: stM,
+      unidad_medida: prodUnidad
     };
 
     try {
-      const { data, error } = await supabase.from('gastos').insert([payload]).select().single();
-      if (!error && data) {
-        setGastos(prev => [data, ...prev]);
+      if (editandoProdId) {
+        await supabase.from('productos').update(prodData).eq('id', editandoProdId);
+        setProductos(prev => prev.map(p => p.id === editandoProdId ? { ...prodData, id: editandoProdId } : p));
+        mostrarNotificacion('exito', '¡Producto actualizado correctamente!');
       } else {
-        setGastos(prev => [{ ...payload, id: Date.now(), fecha: new Date().toISOString() }, ...prev]);
+        const { data, error } = await supabase.from('productos').insert([prodData]).select().single();
+        if (!error && data) {
+          setProductos(prev => [...prev, data]);
+        } else {
+          setProductos(prev => [...prev, { ...prodData, id: Date.now() }]);
+        }
+        mostrarNotificacion('exito', '¡Nuevo producto registrado en DYM’S!');
       }
-      setGastoDesc('');
-      setGastoMonto('');
-      setModalGasto(false);
-      alert('Gasto registrado exitosamente.');
+
+      setModalProd(false);
+      setEditandoProdId(null);
+      setProdNombre('');
+      setProdCosto('');
+      setProdPrecioDetal('');
+      setProdPrecioMayor('');
+      setProdStock('');
     } catch (err: any) {
-      alert('Error registrando gasto: ' + err.message);
+      mostrarNotificacion('error', 'Error al guardar producto: ' + err.message);
+    } finally {
+      setProcesandoProducto(false);
     }
   };
 
   // ==========================================
-  // EXPORTACIONES A EXCEL (.CSV UTF-8)
+  // 16. CLIENTES: CONSULTAR, EDITAR Y GUARDAR
   // ==========================================
-  const exportarInventarioExcel = () => {
-    if (productos.length === 0) return alert('No hay productos para exportar.');
-    const encabezados = ['ID', 'Producto', 'Categoría', 'Unidad', 'Costo Compra', 'Precio Detal', 'Precio Mayorista', 'IVA (%)', 'Stock', 'Inversión Total', 'Estado'];
-    const filas = productos.map(p => [
-      p.id,
-      `"${p.nombre.replace(/"/g, '""')}"`,
-      `"${p.categoria}"`,
-      p.unidad_medida,
-      p.precio_compra,
-      p.precio_venta,
-      p.precio_mayorista,
-      `${p.iva_porcentaje}%`,
-      p.stock,
-      p.stock * p.precio_compra,
-      p.stock <= 0 ? 'AGOTADO' : p.stock <= p.stock_minimo ? 'STOCK BAJO' : 'DISPONIBLE'
-    ].join(';'));
+  const handleGuardarCliente = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (procesandoCliente) return;
 
-    descargarCSV(`DYMS_Inventario_${new Date().toISOString().split('T')[0]}.csv`, [encabezados.join(';'), ...filas].join('\r\n'));
-  };
-
-  const exportarVentasExcel = (soloHoy: boolean | any = false) => {
-    const esHoy = soloHoy === true;
-    const ventasFiltradas = esHoy ? ventas.filter(v => esVentaDeHoy(v.fecha)) : ventas;
-    if (ventasFiltradas.length === 0) {
-      alert(esHoy ? 'No se registran ventas el día de hoy para exportar.' : 'No hay ventas registradas para exportar.');
+    if (!cliDoc.trim() || !cliNombre.trim()) {
+      mostrarNotificacion('advertencia', 'Documento y Nombre son campos obligatorios.');
       return;
     }
 
-    const ventasEfectivas = ventasFiltradas.filter(v => v.estado !== 'anulada');
-    const totalVenta = ventasEfectivas.reduce((acc, v) => acc + (v.total_venta || 0), 0);
-    const totalGanancia = ventasEfectivas.reduce((acc, v) => acc + (v.ganancia_bruta || 0), 0);
-    const totalEfectivo = ventasEfectivas.filter(v => v.metodo_pago === 'efectivo').reduce((acc, v) => acc + (v.total_venta || 0), 0);
-    const totalTransf = ventasEfectivas.filter(v => v.metodo_pago === 'transferencia').reduce((acc, v) => acc + (v.total_venta || 0), 0);
-    const totalAnuladas = ventasFiltradas.filter(v => v.estado === 'anulada').length;
+    setProcesandoCliente(true);
+    const nuevoClienteData = {
+      documento: cliDoc.trim(),
+      nombre: cliNombre.trim(),
+      telefono: cliTel.trim(),
+      direccion: cliDir.trim()
+    };
 
-    const fechaHoyStr = new Date().toLocaleDateString();
-    const resumenHeader = soloHoy ? [
-      `"DYM’S — RESUMEN DE VENTAS DEL DÍA (${fechaHoyStr})"`,
-      `"Total Facturado Válido:";"${totalVenta}";"Efectivo:";"${totalEfectivo}";"Transferencias:";"${totalTransf}";"Ganancia Estimada:";"${totalGanancia}";"Ventas Anuladas:";"${totalAnuladas}"`,
-      `""`
-    ] : [
-      `"DYM’S — HISTORIAL COMPLETO DE VENTAS"`,
-      `"Fecha de Generación:";"${fechaHoyStr}";"Total Efectivo Acumulado:";"${totalVenta}";"Ganancia Total:";"${totalGanancia}";"Total Anuladas:";"${totalAnuladas}"`,
-      `""`
+    try {
+      if (editandoClienteId) {
+        // Actualizar cliente existente
+        try {
+          await supabase.from('clientes').update(nuevoClienteData).eq('id', editandoClienteId);
+        } catch {}
+
+        const actualizados = clientes.map(c => c.id === editandoClienteId ? { ...nuevoClienteData, id: editandoClienteId } : c);
+        setClientes(actualizados);
+        localStorage.setItem('dyms_clientes', JSON.stringify(actualizados));
+        mostrarNotificacion('exito', '¡Cliente actualizado con éxito!');
+      } else {
+        // Crear cliente
+        let idAsignado = Date.now();
+        try {
+          const { data } = await supabase.from('clientes').insert([nuevoClienteData]).select().single();
+          if (data) idAsignado = data.id;
+        } catch {}
+
+        const nuevos = [...clientes, { ...nuevoClienteData, id: idAsignado }];
+        setClientes(nuevos);
+        localStorage.setItem('dyms_clientes', JSON.stringify(nuevos));
+        mostrarNotificacion('exito', '¡Cliente registrado en el directorio de DYM’S!');
+      }
+
+      setCliDoc('');
+      setCliNombre('');
+      setCliTel('');
+      setCliDir('');
+      setEditandoClienteId(null);
+      setModalCliente(false);
+    } catch (err: any) {
+      mostrarNotificacion('error', 'Error con cliente: ' + err.message);
+    } finally {
+      setProcesandoCliente(false);
+    }
+  };
+
+  // ==========================================
+  // 17. GASTOS: MODIFICAR Y ELIMINAR (SOLO ADMIN)
+  // ==========================================
+  const handleGuardarGasto = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (procesandoGasto) return;
+
+    if (usuario?.rol !== 'admin') {
+      mostrarNotificacion('error', 'Solo el Administrador tiene autorización para registrar o modificar gastos.');
+      return;
+    }
+
+    const m = Number(gastoMonto);
+    if (!gastoDesc.trim() || isNaN(m) || m <= 0) {
+      mostrarNotificacion('advertencia', 'Ingresa una descripción y monto válido.');
+      return;
+    }
+
+    // 1.1 Validar que no supere el dinero disponible en caja
+    if (m > dineroTotalDisponibleEnCaja) {
+      mostrarNotificacion('error', `Fondos insuficientes: El monto (${formatoMoneda(m)}) supera el total disponible en caja (${formatoMoneda(dineroTotalDisponibleEnCaja)}).`);
+      return;
+    }
+
+    setProcesandoGasto(true);
+    const nuevoGasto = {
+      categoria: gastoCat,
+      descripcion: gastoDesc.trim(),
+      monto: m,
+      fecha: new Date().toISOString()
+    };
+
+    try {
+      if (editandoGastoId) {
+        await supabase.from('gastos').update(nuevoGasto).eq('id', editandoGastoId);
+        setGastos(prev => prev.map(g => g.id === editandoGastoId ? { ...nuevoGasto, id: editandoGastoId } : g));
+        mostrarNotificacion('exito', '¡Gasto operacional actualizado!');
+      } else {
+        const { data, error } = await supabase.from('gastos').insert([nuevoGasto]).select().single();
+        if (!error && data) {
+          setGastos(prev => [data, ...prev]);
+        } else {
+          setGastos(prev => [{ ...nuevoGasto, id: Date.now() }, ...prev]);
+        }
+        mostrarNotificacion('exito', '¡Gasto operacional registrado en caja!');
+      }
+
+      setGastoDesc('');
+      setGastoMonto('');
+      setEditandoGastoId(null);
+      setModalGasto(false);
+    } catch (err: any) {
+      mostrarNotificacion('error', 'Error al procesar el gasto: ' + err.message);
+    } finally {
+      setProcesandoGasto(false);
+    }
+  };
+
+  const handleEliminarGasto = async (id: number) => {
+    if (usuario?.rol !== 'admin') {
+      mostrarNotificacion('error', 'Solo el Administrador puede eliminar gastos.');
+      return;
+    }
+
+    if (!confirm('¿Estás seguro de eliminar este gasto de la caja?')) return;
+
+    try {
+      await supabase.from('gastos').delete().eq('id', id);
+      setGastos(prev => prev.filter(g => g.id !== id));
+      mostrarNotificacion('exito', 'Gasto eliminado y restituido al saldo de caja.');
+    } catch (err: any) {
+      mostrarNotificacion('error', 'Error eliminando gasto: ' + err.message);
+    }
+  };
+
+  // ==========================================
+  // REPORTES EN EXCEL (.CSV UTF-8)
+  // ==========================================
+  const exportarVentasExcel = (soloHoy: boolean = false) => {
+    const lista = soloHoy ? ventas.filter(v => esVentaDeHoy(v.fecha)) : ventas;
+    if (lista.length === 0) {
+      mostrarNotificacion('advertencia', 'No hay ventas para exportar.');
+      return;
+    }
+
+    const encabezados = [
+      'ID Venta', 'Fecha', 'Hora', 'Vendedor', 'Cliente', 'Documento', 'Producto',
+      'Cantidad', 'Precio Unitario', 'Total Venta', 'Ganancia Estimada', 'Metodo Pago', 'Estado', 'Motivo Anulacion'
     ];
 
-    const encabezados = ['ID', 'Fecha', 'Hora', 'Estado', 'Cliente', 'Documento', 'Producto', 'Categoría', 'Cant', 'Tipo Precio', 'Precio Unit', 'Subtotal', 'IVA', 'Total Venta', 'Ganancia Estimada', 'Pago', 'Vendedor', 'Motivo Anulación'];
-    const filas = ventasFiltradas.map(v => {
-      const f = new Date(v.fecha);
+    const filas = lista.map(v => {
+      const d = new Date(v.fecha);
       return [
         v.id,
-        f.toLocaleDateString(),
-        f.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        v.estado === 'anulada' ? 'ANULADA' : 'COMPLETADA',
+        d.toLocaleDateString(),
+        d.toLocaleTimeString(),
+        `"${v.vendedor || 'Vendedor'}"`,
         `"${v.cliente_nombre || 'Cliente General'}"`,
-        v.cliente_documento || 'C.C.',
+        `"${v.cliente_documento || 'C.C.'}"`,
         `"${v.nombre_producto}"`,
-        `"${v.categoria_producto || 'General'}"`,
         v.cantidad,
-        v.tipo_precio,
         v.precio_unitario,
-        v.subtotal,
-        v.iva_total,
-        v.estado === 'anulada' ? 0 : v.total_venta,
-        v.estado === 'anulada' ? 0 : v.ganancia_bruta,
-        v.metodo_pago,
-        v.vendedor,
+        v.total_venta,
+        v.ganancia_bruta,
+        `"${v.metodo_pago}"`,
+        `"${v.estado || 'completada'}"`,
         `"${v.motivo_anulacion || ''}"`
       ].join(';');
     });
 
-    const nombreArchivo = soloHoy 
-      ? `DYMS_Resumen_Ventas_Dia_${new Date().toISOString().split('T')[0]}.csv`
-      : `DYMS_Historial_Ventas_${new Date().toISOString().split('T')[0]}.csv`;
-
-    descargarCSV(nombreArchivo, [...resumenHeader, encabezados.join(';'), ...filas].join('\r\n'));
-  };
-
-  const descargarCSV = (nombreArchivo: string, contenido: string) => {
-    const blob = new Blob(['\uFEFF' + contenido], { type: 'text/csv;charset=utf-8;' });
+    const csvContent = '\uFEFF' + [encabezados.join(';'), ...filas].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', nombreArchivo);
+    link.download = `Ventas_DYMS_${soloHoy ? 'Hoy' : 'Historial'}_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    mostrarNotificacion('exito', 'Reporte Excel descargado correctamente.');
   };
 
-  // 1. WhatsApp Comprobante para el Cliente
+  const exportarInventarioExcel = () => {
+    if (productos.length === 0) {
+      mostrarNotificacion('advertencia', 'No hay productos registrados en inventario.');
+      return;
+    }
+
+    const encabezados = [
+      'ID', 'Producto', 'Categoria', 'Unidad Medida', 'Costo Compra', 'Precio Detal',
+      'Precio Mayorista', 'IVA (%)', 'Stock Actual', 'Stock Minimo', 'Valor Total en Bodega'
+    ];
+
+    const filas = productos.map(p => [
+      p.id,
+      `"${p.nombre}"`,
+      `"${p.categoria}"`,
+      `"${p.unidad_medida}"`,
+      p.precio_compra,
+      p.precio_venta,
+      p.precio_mayorista,
+      p.iva_porcentaje,
+      p.stock,
+      p.stock_minimo,
+      p.stock * p.precio_compra
+    ].join(';'));
+
+    const csvContent = '\uFEFF' + [encabezados.join(';'), ...filas].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Inventario_DYMS_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    mostrarNotificacion('exito', 'Inventario exportado a Excel.');
+  };
+
+  // ==========================================
+  // WHATSAPP GENERADORES DIRECTOS
+  // ==========================================
   const generarLinkWhatsAppCliente = (ticket: any) => {
     if (!ticket) return '#';
-    const detalle = ticket.items.map((i: ItemCarrito) => `• ${i.cantidad}x ${i.producto.nombre} (${formatoMoneda(i.total)})`).join('\n');
+    const detalle = ticket.items.map((i: ItemCarrito) => 
+      `• ${i.cantidad}x ${i.producto.nombre} (${i.tipo_precio}) = ${formatoMoneda(i.total)}`
+    ).join('\n');
+
     const texto = 
 `🌾 *DYM’S — COMPROBANTE DE VENTA* 🌾
 
@@ -1000,10 +1165,12 @@ ${detalle}
     return num ? `https://wa.me/57${num}?text=${encodeURIComponent(texto)}` : `https://wa.me/?text=${encodeURIComponent(texto)}`;
   };
 
-  // 2. WhatsApp Notificación Interna para el Administrador / Dueño
   const generarLinkWhatsAppAdmin = (ticket: any) => {
     if (!ticket) return '#';
-    const detalle = ticket.items.map((i: ItemCarrito) => `• ${i.cantidad}x ${i.producto.nombre} = ${formatoMoneda(i.total)}`).join('\n');
+    const detalle = ticket.items.map((i: ItemCarrito) => 
+      `• ${i.cantidad}x ${i.producto.nombre} = ${formatoMoneda(i.total)}`
+    ).join('\n');
+
     const texto = 
 `🔔 *ALERTA DE VENTA — DYM’S* 🔔
 
@@ -1028,14 +1195,13 @@ ${detalle}
     return numAdmin ? `https://wa.me/57${numAdmin}?text=${encodeURIComponent(texto)}` : `https://wa.me/?text=${encodeURIComponent(texto)}`;
   };
 
-  // =========================================================================
-  // VISTA: LOGIN (Colores: #E35336 Terracotta, #FFF8DC Cornsilk, #212121 Negro)
-  // =========================================================================
+  // ==========================================
+  // PANTALLA DE LOGIN
+  // ==========================================
   if (!usuario) {
     return (
       <div className="min-h-screen bg-[#212121] flex flex-col justify-center items-center p-4 selection:bg-[#E35336] selection:text-white">
-        {/* Tarjeta de Login DYM'S */}
-        <div className="w-full max-w-md bg-[#FFF8DC] rounded-3xl shadow-2xl p-8 border-4 border-[#E35336] animate-scale-up">
+        <div className="w-full max-w-md bg-[#FFF8DC] rounded-3xl shadow-2xl p-8 border-4 border-[#E35336]">
           <div className="text-center mb-8">
             <div className="inline-flex p-4 bg-[#E35336] text-white rounded-3xl mb-3 shadow-lg">
               <Package className="w-10 h-10 stroke-[2.2]" />
@@ -1048,16 +1214,14 @@ ${detalle}
 
           {loginError && (
             <div className="mb-5 p-3 rounded-2xl bg-[#D32F2F]/10 border-2 border-[#D32F2F] text-[#D32F2F] text-xs font-bold flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+              <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{loginError}</span>
             </div>
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-black text-[#212121] uppercase mb-1.5">
-                Correo Electrónico:
-              </label>
+              <label className="block text-xs font-black text-[#212121] uppercase mb-1.5">Correo Electrónico:</label>
               <div className="relative">
                 <Mail className="w-5 h-5 text-[#212121]/50 absolute left-3.5 top-3" />
                 <input
@@ -1072,17 +1236,15 @@ ${detalle}
             </div>
 
             <div>
-              <label className="block text-xs font-black text-[#212121] uppercase mb-1.5">
-                Contraseña:
-              </label>
+              <label className="block text-xs font-black text-[#212121] uppercase mb-1.5">Contraseña:</label>
               <div className="relative">
                 <Lock className="w-5 h-5 text-[#212121]/50 absolute left-3.5 top-3" />
                 <input
                   type="password"
                   required
                   placeholder="••••••••"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
+                  value={loginPass}
+                  onChange={(e) => setLoginPass(e.target.value)}
                   className="w-full pl-11 pr-4 py-2.5 bg-white border-2 border-[#212121]/20 rounded-2xl focus:border-[#E35336] focus:ring-2 focus:ring-[#E35336]/20 outline-none text-sm font-semibold text-[#212121]"
                 />
               </div>
@@ -1091,26 +1253,25 @@ ${detalle}
             <button
               type="submit"
               disabled={loadingLogin}
-              className="w-full py-3.5 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-2xl text-sm shadow-lg hover:shadow-xl transition transform active:scale-98 mt-2"
+              className="w-full py-3.5 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-2xl text-sm shadow-lg hover:shadow-xl transition transform active:scale-98 mt-2 flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              {loadingLogin ? 'Ingresando a DYM’S...' : 'Ingresar al Sistema'}
+              {loadingLogin ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Ingresar al Sistema'}
             </button>
           </form>
 
-          {/* Cuentas de Acceso Preconfiguradas para pruebas */}
           <div className="mt-8 pt-5 border-t border-[#212121]/15 text-center">
             <p className="text-[11px] font-bold text-[#212121]/60 uppercase mb-2">Acceso Rápido Autorizado:</p>
             <div className="flex justify-center gap-2 text-xs">
               <button
                 type="button"
-                onClick={() => { setLoginEmail('admin@dyms.com'); setLoginPassword('admin123'); }}
+                onClick={() => { setLoginEmail('admin@dyms.com'); setLoginPass('admin123'); }}
                 className="px-3 py-1.5 bg-white border border-[#E35336] text-[#E35336] font-bold rounded-xl hover:bg-[#E35336] hover:text-white transition"
               >
                 👑 Admin
               </button>
               <button
                 type="button"
-                onClick={() => { setLoginEmail('vendedor@dyms.com'); setLoginPassword('vendedor123'); }}
+                onClick={() => { setLoginEmail('vendedor@dyms.com'); setLoginPass('vendedor123'); }}
                 className="px-3 py-1.5 bg-white border border-[#212121] text-[#212121] font-bold rounded-xl hover:bg-[#212121] hover:text-white transition"
               >
                 🛒 Vendedor
@@ -1122,38 +1283,61 @@ ${detalle}
     );
   }
 
-  // =========================================================================
-  // VISTA: SISTEMA PRINCIPAL DYM'S (AUTENTICADO)
-  // =========================================================================
+  // ==========================================
+  // VISTA PRINCIPAL CON NAVEGACIÓN
+  // ==========================================
   return (
-    <div className="min-h-screen bg-[#CBD5E1] text-[#212121] flex flex-col font-sans">
-      {/* BARRA SUPERIOR DYM'S */}
-      <header className="bg-[#212121] text-white shadow-xl sticky top-0 z-30 border-b-4 border-[#E35336]">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+    <div className="min-h-screen bg-[#CBD5E1] text-[#212121] flex flex-col">
+      {/* 4. NOTIFICACIONES VISUALES FLOTANTES (NO INVASIVAS) */}
+      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none no-print">
+        {notificaciones.map(n => (
+          <div
+            key={n.id}
+            className={`pointer-events-auto shadow-2xl rounded-2xl px-4 py-3 flex items-center gap-3 border-2 text-xs font-bold transition transform duration-200 ${
+              n.tipo === 'exito' ? 'bg-emerald-600 border-emerald-700 text-white' :
+              n.tipo === 'error' ? 'bg-[#D32F2F] border-red-700 text-white' :
+              n.tipo === 'advertencia' ? 'bg-amber-500 border-amber-600 text-black' :
+              'bg-[#212121] border-black text-white'
+            }`}
+          >
+            {n.tipo === 'exito' && <CheckCircle2 className="w-5 h-5 shrink-0" />}
+            {n.tipo === 'error' && <AlertTriangle className="w-5 h-5 shrink-0" />}
+            {n.tipo === 'advertencia' && <AlertCircle className="w-5 h-5 shrink-0" />}
+            {n.tipo === 'info' && <Info className="w-5 h-5 shrink-0" />}
+            <span className="flex-1">{n.mensaje}</span>
+            <button
+              onClick={() => setNotificaciones(prev => prev.filter(item => item.id !== n.id))}
+              className="opacity-70 hover:opacity-100 ml-2"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* 2.2 ENCABEZADO FIJO (STICKY, SIN DESPLAZAMIENTOS) & 15. SIN 'v3.0' */}
+      <header className="bg-[#212121] text-white shadow-xl sticky top-0 z-40 border-b-4 border-[#E35336] w-full no-print">
+        <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+          {/* Logo y Nombre Limpio */}
           <div className="flex items-center gap-3">
-            <div className="bg-[#E35336] text-white p-2.5 rounded-2xl shadow-md">
-              <Package className="w-6 h-6 stroke-[2.5]" />
+            <div className="bg-[#E35336] text-white p-2 rounded-2xl shadow-md">
+              <Package className="w-5 h-5 stroke-[2.5]" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-black tracking-tight text-white">DYM’S</span>
-                <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-[#E35336] text-white">
-                  v3.0
-                </span>
-              </div>
-              <p className="text-[11px] font-medium text-[#FFF8DC]/70">Gestión de Inventario, Ventas & Caja</p>
+              <span className="text-2xl font-black tracking-tight text-white">DYM’S</span>
+              <p className="text-[10px] font-medium text-[#FFF8DC]/70 hidden sm:block">Gestión de Inventario, Ventas & Caja</p>
             </div>
           </div>
 
           {/* Menú de Navegación Modular */}
-          <nav className="flex items-center gap-1.5 bg-[#2b2b2b] p-1.5 rounded-2xl border border-white/10 overflow-x-auto">
+          <nav className="flex items-center gap-1 bg-[#2b2b2b] p-1 rounded-2xl border border-white/10 overflow-x-auto">
             <button
               onClick={() => setModuloActivo('dashboard')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                 moduloActivo === 'dashboard' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
               }`}
             >
-              <BarChart3 className="w-4 h-4" />
+              <BarChart3 className="w-3.5 h-3.5" />
               Inicio
             </button>
             <button
@@ -1162,7 +1346,7 @@ ${detalle}
                 moduloActivo === 'pos' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
               }`}
             >
-              <ShoppingCart className="w-4 h-4" />
+              <ShoppingCart className="w-3.5 h-3.5" />
               Venta POS
             </button>
             <button
@@ -1171,8 +1355,8 @@ ${detalle}
                 moduloActivo === 'ventas' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
               }`}
             >
-              <Receipt className="w-4 h-4" />
-              Ventas Realizadas
+              <Receipt className="w-3.5 h-3.5" />
+              Ventas
             </button>
             <button
               onClick={() => setModuloActivo('inventario')}
@@ -1180,7 +1364,7 @@ ${detalle}
                 moduloActivo === 'inventario' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
               }`}
             >
-              <Layers className="w-4 h-4" />
+              <Layers className="w-3.5 h-3.5" />
               Inventario
             </button>
             <button
@@ -1189,7 +1373,7 @@ ${detalle}
                 moduloActivo === 'caja' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
               }`}
             >
-              <Wallet className="w-4 h-4" />
+              <Wallet className="w-3.5 h-3.5" />
               Caja
             </button>
             <button
@@ -1198,7 +1382,7 @@ ${detalle}
                 moduloActivo === 'clientes' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
               }`}
             >
-              <Users className="w-4 h-4" />
+              <Users className="w-3.5 h-3.5" />
               Clientes
             </button>
             {usuario.rol === 'admin' && (
@@ -1209,7 +1393,7 @@ ${detalle}
                     moduloActivo === 'gastos' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
                   }`}
                 >
-                  <DollarSign className="w-4 h-4" />
+                  <DollarSign className="w-3.5 h-3.5" />
                   Gastos
                 </button>
                 <button
@@ -1218,18 +1402,18 @@ ${detalle}
                     moduloActivo === 'reportes' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
                   }`}
                 >
-                  <FileSpreadsheet className="w-4 h-4" />
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
                   Reportes
                 </button>
               </>
             )}
           </nav>
 
-          {/* Perfil & Logout */}
-          <div className="flex items-center gap-3">
-            <div className="text-right hidden sm:block">
-              <p className="text-xs font-bold text-white">{usuario.nombre}</p>
-              <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+          {/* 2.1 BOTÓN DE SALIDA MOVIDO A UN LADO DENTRO DE UN PANEL SEPARADO */}
+          <div className="flex items-center gap-2 border-l border-white/20 pl-3">
+            <div className="text-right hidden md:block">
+              <p className="text-xs font-bold text-white leading-tight">{usuario.nombre}</p>
+              <span className={`text-[9px] font-black uppercase px-2 py-0.2 rounded-md ${
                 usuario.rol === 'admin' ? 'bg-[#FFF8DC] text-[#212121]' : 'bg-[#E35336] text-white'
               }`}>
                 {usuario.rol === 'admin' ? 'Administrador' : 'Vendedor'}
@@ -1237,18 +1421,19 @@ ${detalle}
             </div>
             <button
               onClick={handleLogout}
-              title="Cerrar Sesión"
-              className="p-2 rounded-xl bg-white/10 hover:bg-[#D32F2F] text-white transition"
+              title="Cerrar Sesión / Salir"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-[#D32F2F] text-white text-xs font-bold transition"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Salida</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* ALERTA DE ESTADO DE CAJA */}
+      {/* AVISO VISUAL DE CAJA CERRADA */}
       {(!cajaActual || cajaActual.estado === 'cerrada') && (
-        <div className="bg-[#D32F2F] text-white py-2 px-4 shadow-md text-xs font-bold flex items-center justify-between">
+        <div className="bg-[#D32F2F] text-white py-2 px-4 shadow-md text-xs font-bold no-print">
           <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-[#FFF8DC]" />
@@ -1264,26 +1449,26 @@ ${detalle}
         </div>
       )}
 
-      {/* CONTENEDOR PRINCIPAL */}
+      {/* CONTENIDO PRINCIPAL */}
       <main className="max-w-7xl mx-auto px-4 py-6 w-full flex-1">
         {/* ============================================================ */}
         {/* 1. MÓDULO: DASHBOARD / INICIO */}
         {/* ============================================================ */}
         {moduloActivo === 'dashboard' && (
-          <div className="space-y-6 animate-fade-in">
+          <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black text-[#212121]">Panel General de DYM’S</h2>
                 <p className="text-xs font-semibold text-[#212121]/60">Resumen operativo de hoy y estado del negocio</p>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-[#FFF8DC] border border-[#E35336] text-[#E35336] flex items-center gap-1.5">
+                <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-white border border-[#212121]/20 text-[#212121] flex items-center gap-1.5">
                   <span className={`w-2 h-2 rounded-full ${cajaActual?.estado === 'abierta' ? 'bg-emerald-500' : 'bg-[#D32F2F]'}`}></span>
                   Caja: {cajaActual?.estado === 'abierta' ? 'Abierta' : 'Cerrada'}
                 </span>
                 <button
                   onClick={cargarDatosGenerales}
-                  className="p-2 rounded-xl bg-white border border-[#212121]/20 hover:bg-[#FFF8DC] text-[#212121] transition"
+                  className="p-2 rounded-xl bg-white border border-[#212121]/20 hover:bg-slate-100 text-[#212121] transition"
                   title="Actualizar datos"
                 >
                   <RefreshCw className="w-4 h-4" />
@@ -1291,10 +1476,10 @@ ${detalle}
               </div>
             </div>
 
-            {/* Tarjetas KPI */}
+            {/* 3.1 TARJETAS KPI (SIN EFECTO HOVER EN GENERAL, EXCEPTO ALERTAS DE STOCK) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Ventas Hoy */}
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs hover:border-[#E35336] transition">
+              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-[#212121]/60 uppercase">Ventas de Hoy</span>
                   <div className="p-2 bg-[#E35336]/10 text-[#E35336] rounded-xl">
@@ -1311,24 +1496,25 @@ ${detalle}
                 </div>
               </div>
 
-              {/* Dinero en Caja */}
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs hover:border-[#E35336] transition">
+              {/* 1.2 TARJETA: DINERO EN CAJA (MUESTRA TOTAL DISPONIBLE) */}
+              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-black text-[#212121]/60 uppercase">Efectivo en Caja</span>
+                  <span className="text-xs font-black text-[#212121]/60 uppercase">Dinero en Caja</span>
                   <div className="p-2 bg-[#FFF8DC] text-[#E35336] rounded-xl border border-[#E35336]">
                     <Wallet className="w-5 h-5" />
                   </div>
                 </div>
                 <p className="text-2xl font-black text-[#E35336]">
-                  {formatoMoneda(dineroEsperadoEnCaja)}
+                  {formatoMoneda(dineroTotalDisponibleEnCaja)}
                 </p>
-                <p className="text-[11px] text-[#212121]/60 mt-1 font-semibold">
-                  Base ({formatoMoneda(cajaActual?.monto_inicial || 0)}) + Ventas - Gastos
-                </p>
+                <div className="flex items-center justify-between mt-2 text-[10px] text-[#212121]/70 font-semibold border-t pt-1">
+                  <span>💵 Efectivo: {formatoMoneda(efectivoFisicoEnCaja)}</span>
+                  <span>📱 Transf: {formatoMoneda(totalVentasTransfHoy)}</span>
+                </div>
               </div>
 
-              {/* Valor de Inversión Inventario */}
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs hover:border-[#E35336] transition">
+              {/* Inversión en Bodega */}
+              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-[#212121]/60 uppercase">Inversión en Bodega</span>
                   <div className="p-2 bg-[#212121]/5 text-[#212121] rounded-xl">
@@ -1343,7 +1529,7 @@ ${detalle}
                 </p>
               </div>
 
-              {/* Alertas de Stock Bajo (Interactivo: abre detalle de productos) */}
+              {/* 3.1 ALERTAS DE STOCK: ÚNICA TARJETA CON EFECTO HOVER */}
               <div
                 onClick={() => setModalAlertasStock(true)}
                 className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs hover:border-[#D32F2F] hover:shadow-lg cursor-pointer transition transform hover:-translate-y-0.5 group"
@@ -1367,58 +1553,35 @@ ${detalle}
               </div>
             </div>
 
-            {/* Desglose de Ventas por Categoría (Bultos, Pollos, Huevos) */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/10 shadow-xs space-y-4 lg:col-span-2">
-                <div className="flex items-center justify-between border-b pb-3">
-                  <h3 className="font-black text-lg text-[#212121]">Movimiento de Categorías Clave (DYM’S)</h3>
-                  <span className="text-xs text-[#212121]/50 font-bold">Distribución de existencias</span>
+            {/* 3.3 INVENTARIO TOTAL (REEMPLAZA MOVIMIENTO DE CATEGORÍAS CLAVE Y SE ELIMINÓ ACCIONES INMEDIATAS) */}
+            <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/10 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div>
+                  <h3 className="font-black text-lg text-[#212121]">Inventario Total</h3>
+                  <p className="text-xs text-[#212121]/60 font-semibold">Distribución de existencias y valorización por categorías</p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {['Purinas y Concentrados', 'Pollos y Aves', 'Huevos'].map((cat) => {
-                    const prodsCat = productos.filter(p => p.categoria === cat);
-                    const stockTotal = prodsCat.reduce((acc, p) => acc + p.stock, 0);
-                    const valorCat = prodsCat.reduce((acc, p) => acc + (p.stock * p.precio_compra), 0);
-                    return (
-                      <div key={cat} className="p-4 rounded-2xl bg-[#FFF8DC]/40 border border-[#212121]/10">
-                        <span className="text-[11px] font-black uppercase text-[#E35336] block mb-1">{cat}</span>
-                        <p className="text-2xl font-black text-[#212121]">{stockTotal}</p>
-                        <p className="text-xs text-[#212121]/60 font-semibold">unidades/bultos</p>
-                        <p className="text-xs font-bold text-[#212121] mt-2">Valor: {formatoMoneda(valorCat)}</p>
-                      </div>
-                    );
-                  })}
-                </div>
+                <span className="text-xs text-[#E35336] font-bold bg-[#FFF8DC] px-3 py-1 rounded-xl border border-[#E35336]">
+                  Total Bodega: {productos.reduce((acc, p) => acc + p.stock, 0)} unidades/bultos
+                </span>
               </div>
-
-              {/* Acciones Rápidas */}
-              <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/10 shadow-xs space-y-3">
-                <h3 className="font-black text-base text-[#212121] border-b pb-3">Acciones Inmediatas</h3>
-                <button
-                  onClick={() => setModuloActivo('pos')}
-                  className="w-full py-3 px-4 rounded-2xl bg-[#E35336] text-white font-black text-sm flex items-center justify-between hover:bg-[#d0462a] transition shadow-md"
-                >
-                  <span className="flex items-center gap-2"><ShoppingCart className="w-4 h-4" /> Facturar Nueva Venta</span>
-                  <ArrowUpRight className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => { setModalProd(true); setEditandoProdId(null); }}
-                  className="w-full py-3 px-4 rounded-2xl bg-[#212121] text-white font-black text-sm flex items-center justify-between hover:bg-[#333] transition"
-                >
-                  <span className="flex items-center gap-2"><Plus className="w-4 h-4" /> Crear Nuevo Producto</span>
-                  <ArrowUpRight className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setModuloActivo('caja')}
-                  className="w-full py-3 px-4 rounded-2xl bg-[#FFF8DC] text-[#212121] border-2 border-[#E35336] font-black text-sm flex items-center justify-between hover:bg-[#FFF8DC]/80 transition"
-                >
-                  <span className="flex items-center gap-2"><Wallet className="w-4 h-4 text-[#E35336]" /> Arqueo / Cierre de Caja</span>
-                  <ArrowUpRight className="w-4 h-4" />
-                </button>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {['Purinas y Concentrados', 'Pollos y Aves', 'Huevos'].map((cat) => {
+                  const prodsCat = productos.filter(p => p.categoria === cat);
+                  const stockTotal = prodsCat.reduce((acc, p) => acc + p.stock, 0);
+                  const valorCat = prodsCat.reduce((acc, p) => acc + (p.stock * p.precio_compra), 0);
+                  return (
+                    <div key={cat} className="p-4 rounded-2xl bg-[#FFF8DC]/40 border border-[#212121]/10">
+                      <span className="text-[11px] font-black uppercase text-[#E35336] block mb-1">{cat}</span>
+                      <p className="text-2xl font-black text-[#212121]">{stockTotal}</p>
+                      <p className="text-xs text-[#212121]/60 font-semibold">unidades/bultos disponibles</p>
+                      <p className="text-xs font-bold text-[#212121] mt-2">Valoración: {formatoMoneda(valorCat)}</p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Tabla de Ventas Recientes en el Dashboard con botón de Descarga de Resumen del Día */}
+            {/* Tabla de Ventas de Hoy */}
             <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/10 shadow-xs space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
                 <div>
@@ -1429,7 +1592,6 @@ ${detalle}
                   <button
                     onClick={() => exportarVentasExcel(true)}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition"
-                    title="Descargar archivo Excel con el resumen y desglose de las ventas del día"
                   >
                     <FileSpreadsheet className="w-4 h-4" />
                     <span>Descargar Resumen del Día (Excel)</span>
@@ -1453,338 +1615,53 @@ ${detalle}
                     <thead className="bg-[#FFF8DC] uppercase font-black text-[10px] text-[#212121] border-b">
                       <tr>
                         <th className="py-2.5 px-3">Hora</th>
-                        <th className="py-2.5 px-3">Estado</th>
-                        <th className="py-2.5 px-3">Cliente</th>
                         <th className="py-2.5 px-3">Producto</th>
                         <th className="py-2.5 px-3">Cant</th>
-                        <th className="py-2.5 px-3">Total Venta</th>
+                        <th className="py-2.5 px-3">Total</th>
                         <th className="py-2.5 px-3">Método</th>
-                        <th className="py-2.5 px-3">Vendedor</th>
-                        {usuario.rol === 'admin' && <th className="py-2.5 px-3 text-center">Acción</th>}
+                        <th className="py-2.5 px-3">Cliente</th>
+                        <th className="py-2.5 px-3">Estado</th>
+                        <th className="py-2.5 px-3 text-right">Acción</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 font-semibold">
+                    <tbody className="divide-y divide-slate-100 font-medium">
                       {ventas
                         .filter(v => esVentaDeHoy(v.fecha))
-                        .slice(0, 8)
+                        .slice(0, 10)
                         .map((v) => {
-                          const f = new Date(v.fecha);
+                          const esAnulada = v.estado === 'anulada';
                           return (
-                            <tr key={v.id} className={`hover:bg-slate-50 transition ${v.estado === 'anulada' ? 'bg-rose-50/20 opacity-70' : ''}`}>
-                              <td className="py-2.5 px-3 font-mono">{f.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                              <td className="py-2.5 px-3">
-                                {v.estado === 'anulada' ? (
-                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-[#D32F2F]/15 text-[#D32F2F] border border-[#D32F2F]/30">
-                                    Anulada
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-100 text-emerald-800">
-                                    Válida
-                                  </span>
-                                )}
-                              </td>
-                              <td className="py-2.5 px-3 font-bold text-[#212121]">{v.cliente_nombre || 'Cliente General'}</td>
-                              <td className="py-2.5 px-3">{v.nombre_producto}</td>
+                            <tr key={v.id} className={esAnulada ? 'bg-red-50/50 line-through text-slate-400' : 'hover:bg-slate-50'}>
+                              <td className="py-2.5 px-3">{new Date(v.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                              <td className="py-2.5 px-3 font-bold text-[#212121]">{v.nombre_producto}</td>
                               <td className="py-2.5 px-3 font-black">{v.cantidad}</td>
-                              <td className={`py-2.5 px-3 font-black ${v.estado === 'anulada' ? 'line-through text-slate-400' : 'text-[#E35336]'}`}>
-                                {formatoMoneda(v.total_venta)}
-                              </td>
+                              <td className="py-2.5 px-3 font-black text-[#212121]">{formatoMoneda(v.total_venta)}</td>
+                              <td className="py-2.5 px-3 capitalize">{v.metodo_pago}</td>
+                              <td className="py-2.5 px-3">{v.cliente_nombre}</td>
                               <td className="py-2.5 px-3">
-                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
-                                  v.metodo_pago === 'efectivo' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
-                                }`}>
-                                  {v.metodo_pago}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-[#212121]/60">{v.vendedor}</td>
-                              {usuario.rol === 'admin' && (
-                                <td className="py-2.5 px-3 text-center">
-                                  {v.estado !== 'anulada' && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleAnularVenta(v)}
-                                      className="p-1 rounded-lg bg-rose-50 text-[#D32F2F] hover:bg-[#D32F2F] hover:text-white transition"
-                                      title="Anular venta y devolver stock"
-                                    >
-                                      <RotateCcw className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
-                                </td>
-                              )}
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ============================================================ */}
-        {/* 2. MÓDULO: VENTAS REALIZADAS (HISTORIAL & EXPORTACIÓN EXCEL) */}
-        {/* ============================================================ */}
-        {moduloActivo === 'ventas' && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Cabecera del Módulo */}
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-black text-[#212121]">Ventas Realizadas</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">
-                  Historial de transacciones, resumen consolidado del día y descarga de reportes en Excel
-                </p>
-              </div>
-
-              {/* Botones de Exportación a Excel */}
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => exportarVentasExcel(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition"
-                  title="Descargar Excel con el resumen consolidado y las ventas de hoy"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Descargar Resumen del Día (.CSV)</span>
-                </button>
-                <button
-                  onClick={() => exportarVentasExcel(false)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#212121] hover:bg-[#333] text-white font-black text-xs shadow-md transition"
-                  title="Descargar todo el historial acumulado en Excel"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Historial Completo (.CSV)</span>
-                </button>
-                <button
-                  onClick={() => setModuloActivo('pos')}
-                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-[#E35336] hover:bg-[#d0462a] text-white font-black text-xs shadow-md transition"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Nueva Venta</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Tarjetas KPI de Resumen del Día */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs">
-                <span className="text-xs font-black text-[#212121]/60 uppercase">Facturado Hoy</span>
-                <p className="text-2xl font-black text-[#212121] mt-1">
-                  {formatoMoneda(totalVentasEfectivoHoy + totalVentasTransfHoy)}
-                </p>
-                <p className="text-[11px] text-emerald-700 font-bold mt-1">
-                  {ventas.filter(v => esVentaDeHoy(v.fecha)).length} ventas registradas hoy
-                </p>
-              </div>
-
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs">
-                <span className="text-xs font-black text-[#212121]/60 uppercase">Efectivo Hoy</span>
-                <p className="text-2xl font-black text-emerald-700 mt-1">
-                  {formatoMoneda(totalVentasEfectivoHoy)}
-                </p>
-                <p className="text-[11px] text-[#212121]/60 font-semibold mt-1">
-                  Dinero recaudado en caja física
-                </p>
-              </div>
-
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs">
-                <span className="text-xs font-black text-[#212121]/60 uppercase">Transferencias Hoy</span>
-                <p className="text-2xl font-black text-blue-700 mt-1">
-                  {formatoMoneda(totalVentasTransfHoy)}
-                </p>
-                <p className="text-[11px] text-[#212121]/60 font-semibold mt-1">
-                  Bancolombia, Nequi, Daviplata
-                </p>
-              </div>
-
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs">
-                <span className="text-xs font-black text-[#212121]/60 uppercase">Ganancia Bruta Hoy</span>
-                <p className="text-2xl font-black text-[#E35336] mt-1">
-                  {formatoMoneda(
-                    ventas
-                      .filter(v => esVentaDeHoy(v.fecha))
-                      .reduce((acc, v) => acc + (v.ganancia_bruta || 0), 0)
-                  )}
-                </p>
-                <p className="text-[11px] text-[#212121]/60 font-semibold mt-1">
-                  Margen después de costo de compra
-                </p>
-              </div>
-            </div>
-
-            {/* Barra de Filtros y Búsqueda */}
-            <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setFiltroVentasTiempo('hoy')}
-                  className={`px-4 py-2 rounded-xl text-xs font-black transition ${
-                    filtroVentasTiempo === 'hoy'
-                      ? 'bg-[#E35336] text-white shadow-sm'
-                      : 'bg-slate-100 text-[#212121] hover:bg-slate-200'
-                  }`}
-                >
-                  Ventas de Hoy ({ventas.filter(v => esVentaDeHoy(v.fecha)).length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFiltroVentasTiempo('todas')}
-                  className={`px-4 py-2 rounded-xl text-xs font-black transition ${
-                    filtroVentasTiempo === 'todas'
-                      ? 'bg-[#E35336] text-white shadow-sm'
-                      : 'bg-slate-100 text-[#212121] hover:bg-slate-200'
-                  }`}
-                >
-                  Todas las Ventas ({ventas.length})
-                </button>
-              </div>
-
-              <div className="relative flex-1 max-w-sm">
-                <Search className="w-4 h-4 text-[#212121]/50 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  placeholder="Buscar por cliente, documento o producto..."
-                  value={busquedaVentasHist}
-                  onChange={(e) => setBusquedaVentasHist(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 text-xs font-bold border-2 border-[#212121]/15 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Tabla Detallada de Ventas */}
-            <div className="bg-white rounded-3xl border-2 border-[#212121]/15 shadow-sm overflow-hidden">
-              <div className="p-5 border-b flex items-center justify-between">
-                <h3 className="font-black text-base text-[#212121]">
-                  {filtroVentasTiempo === 'hoy' ? 'Detalle de Ventas de Hoy' : 'Historial Acumulado de Ventas'}
-                </h3>
-                <span className="text-xs font-bold text-[#212121]/60">
-                  Mostrando{' '}
-                  {
-                    ventas
-                      .filter(v => (filtroVentasTiempo === 'hoy' ? esVentaDeHoy(v.fecha) : true))
-                      .filter(v => {
-                        if (!busquedaVentasHist.trim()) return true;
-                        const q = busquedaVentasHist.toLowerCase();
-                        return (
-                          (v.cliente_nombre && v.cliente_nombre.toLowerCase().includes(q)) ||
-                          (v.cliente_documento && v.cliente_documento.toLowerCase().includes(q)) ||
-                          (v.nombre_producto && v.nombre_producto.toLowerCase().includes(q)) ||
-                          (v.vendedor && v.vendedor.toLowerCase().includes(q))
-                        );
-                      }).length
-                  }{' '}
-                  registro(s)
-                </span>
-              </div>
-
-              {ventas.filter(v => (filtroVentasTiempo === 'hoy' ? esVentaDeHoy(v.fecha) : true)).length === 0 ? (
-                <div className="text-center py-16 text-[#212121]/50 space-y-2">
-                  <Receipt className="w-10 h-10 mx-auto opacity-40" />
-                  <p className="font-bold text-sm">
-                    {filtroVentasTiempo === 'hoy' ? 'No se han registrado ventas el día de hoy.' : 'No hay ventas en el historial.'}
-                  </p>
-                  <button
-                    onClick={() => setModuloActivo('pos')}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#E35336] text-white text-xs font-bold hover:bg-[#d0462a] transition"
-                  >
-                    <ShoppingCart className="w-4 h-4" /> Ir a Facturar en POS
-                  </button>
-                </div>
-              ) : (
-                <div className="overflow-x-auto max-h-[600px]">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-[#FFF8DC] uppercase font-black text-[10px] text-[#212121] sticky top-0 border-b">
-                      <tr>
-                        <th className="py-3 px-4">Fecha/Hora</th>
-                        <th className="py-3 px-4">Cliente</th>
-                        <th className="py-3 px-4">Producto</th>
-                        <th className="py-3 px-4">Cant.</th>
-                        <th className="py-3 px-4">Precio Unit.</th>
-                        <th className="py-3 px-4">Total Venta</th>
-                        <th className="py-3 px-4">Ganancia</th>
-                        <th className="py-3 px-4">Método</th>
-                        <th className="py-3 px-4">Vendedor</th>
-                        <th className="py-3 px-4 text-center">Estado / Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-semibold">
-                      {ventas
-                        .filter(v => (filtroVentasTiempo === 'hoy' ? esVentaDeHoy(v.fecha) : true))
-                        .filter(v => {
-                          if (!busquedaVentasHist.trim()) return true;
-                          const q = busquedaVentasHist.toLowerCase();
-                          return (
-                            (v.cliente_nombre && v.cliente_nombre.toLowerCase().includes(q)) ||
-                            (v.cliente_documento && v.cliente_documento.toLowerCase().includes(q)) ||
-                            (v.nombre_producto && v.nombre_producto.toLowerCase().includes(q)) ||
-                            (v.vendedor && v.vendedor.toLowerCase().includes(q))
-                          );
-                        })
-                        .map((v) => {
-                          const f = new Date(v.fecha);
-                          return (
-                            <tr key={v.id} className={`hover:bg-slate-50 transition ${v.estado === 'anulada' ? 'bg-rose-50/20 opacity-70' : ''}`}>
-                              <td className="py-3 px-4 font-mono text-[11px]">
-                                <span className="block font-bold">{f.toLocaleDateString()}</span>
-                                <span className="text-[#212121]/60 text-[10px]">{f.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                              </td>
-                              <td className="py-3 px-4">
-                                <span className="font-bold text-[#212121] block">{v.cliente_nombre || 'Cliente General'}</span>
-                                <span className="text-[10px] text-[#212121]/60">Doc: {v.cliente_documento || 'C.C.'}</span>
-                              </td>
-                              <td className="py-3 px-4">
-                                <span className="font-bold text-[#212121] block">{v.nombre_producto}</span>
-                                <span className="text-[10px] text-[#E35336] uppercase font-bold">{v.categoria_producto || 'General'}</span>
-                              </td>
-                              <td className="py-3 px-4 font-black">{v.cantidad}</td>
-                              <td className="py-3 px-4 font-mono">
-                                {formatoMoneda(v.precio_unitario)}
-                                <span className="text-[9px] text-[#212121]/50 block uppercase">({v.tipo_precio})</span>
-                              </td>
-                              <td className={`py-3 px-4 font-black text-sm font-mono ${v.estado === 'anulada' ? 'line-through text-slate-400' : 'text-[#212121]'}`}>
-                                {formatoMoneda(v.total_venta)}
-                              </td>
-                              <td className={`py-3 px-4 font-bold font-mono ${v.estado === 'anulada' ? 'line-through text-slate-400' : 'text-emerald-700'}`}>
-                                +{formatoMoneda(v.ganancia_bruta)}
-                              </td>
-                              <td className="py-3 px-4">
-                                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${
-                                  v.metodo_pago === 'efectivo'
-                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                    : 'bg-blue-100 text-blue-800 border border-blue-300'
-                                }`}>
-                                  {v.metodo_pago}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 text-[#212121]/70">{v.vendedor}</td>
-                              <td className="py-3 px-4 text-center">
-                                {v.estado === 'anulada' ? (
-                                  <div className="inline-block text-center">
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-[#D32F2F]/15 text-[#D32F2F] border border-[#D32F2F]/30">
-                                      ❌ Anulada
-                                    </span>
-                                    {v.motivo_anulacion && (
-                                      <p className="text-[9px] text-[#D32F2F] italic truncate max-w-[120px] mx-auto mt-0.5" title={v.motivo_anulacion}>
-                                        {v.motivo_anulacion}
-                                      </p>
-                                    )}
-                                  </div>
+                                {esAnulada ? (
+                                  <button
+                                    onClick={() => setVentaVerMotivo(v)}
+                                    className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-[#D32F2F] hover:underline"
+                                    title="Haz clic para ver el motivo real de anulación"
+                                  >
+                                    Anulada 🔍
+                                  </button>
                                 ) : (
-                                  <div className="flex items-center justify-center gap-1.5">
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-100 text-emerald-800">
-                                      Completada
-                                    </span>
-                                    {usuario?.rol === 'admin' && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleAnularVenta(v)}
-                                        className="p-1 px-2 rounded-lg bg-rose-50 hover:bg-[#D32F2F] text-[#D32F2F] hover:text-white transition flex items-center gap-1 text-[10px] font-bold shadow-xs"
-                                        title="Anular venta y devolver unidades al inventario"
-                                      >
-                                        <RotateCcw className="w-3 h-3" />
-                                        <span>Anular</span>
-                                      </button>
-                                    )}
-                                  </div>
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                                    Completada
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                {!esAnulada && (
+                                  <button
+                                    disabled={procesandoAnulacion}
+                                    onClick={() => handleAnularVenta(v)}
+                                    className="px-2.5 py-1 bg-white border border-[#D32F2F] text-[#D32F2F] hover:bg-[#D32F2F] hover:text-white rounded-lg text-[10px] font-bold transition shadow-2xs"
+                                  >
+                                    Anular
+                                  </button>
                                 )}
                               </td>
                             </tr>
@@ -1799,74 +1676,21 @@ ${detalle}
         )}
 
         {/* ============================================================ */}
-        {/* 3. MÓDULO: VENTAS (POS) */}
+        {/* 5. MÓDULO: VENTAS POS CON PAGINACIÓN Y BÚSQUEDA INTEGRADA */}
         {/* ============================================================ */}
         {moduloActivo === 'pos' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Columna Izquierda: Catálogo y Búsqueda */}
             <div className="lg:col-span-7 space-y-4">
               <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 className="text-xl font-black text-[#212121]">Punto de Venta DYM’S</h2>
-                  {/* Selector de Cliente por Cédula y Teléfono WhatsApp Directo */}
-                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                    <div className="relative flex-1 sm:w-44">
-                      <Search className="w-4 h-4 text-[#212121]/50 absolute left-3 top-2.5" />
-                      <input
-                        type="text"
-                        placeholder="Buscar C.C. Cliente..."
-                        value={docClientePOS}
-                        onChange={(e) => buscarClientePorDoc(e.target.value)}
-                        className="w-full pl-9 pr-3 py-1.5 text-xs font-bold border-2 border-[#212121]/15 rounded-xl focus:border-[#E35336] outline-none"
-                      />
-                    </div>
-                    {/* Campo de WhatsApp Ocasional / Directo */}
-                    <div className="relative flex-1 sm:w-44">
-                      <span className="text-[10px] font-bold text-emerald-700 absolute left-2.5 top-2">📱 Tel:</span>
-                      <input
-                        type="text"
-                        placeholder="WhatsApp cliente..."
-                        value={telClientePOS}
-                        onChange={(e) => setTelClientePOS(e.target.value)}
-                        className="w-full pl-14 pr-3 py-1.5 text-xs font-bold border-2 border-emerald-600/30 rounded-xl focus:border-emerald-600 outline-none bg-emerald-50/20"
-                        title="Teléfono del cliente para el envío del ticket por WhatsApp (opcional para clientes no registrados)"
-                      />
-                    </div>
-                    <button
-                      onClick={() => setModalCliente(true)}
-                      className="p-2 rounded-xl bg-[#FFF8DC] border border-[#E35336] text-[#E35336] font-bold text-xs shrink-0"
-                      title="Registrar cliente formal en base de datos"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <span className="text-xs font-bold text-slate-500">
+                    Página {paginaPOS} de {totalPaginasPOS} ({productosFiltradosPOS.length} productos)
+                  </span>
                 </div>
 
-                {clienteSeleccionado && (
-                  <div className="bg-[#FFF8DC] border border-[#E35336] p-2.5 rounded-xl text-xs flex items-center justify-between">
-                    <div>
-                      <span className="font-bold text-[#E35336]">Cliente Registrado: </span>
-                      <strong className="text-[#212121]">{clienteSeleccionado.nombre}</strong> (Doc: {clienteSeleccionado.documento})
-                      {clienteSeleccionado.telefono && (
-                        <span className="text-emerald-800 font-bold ml-2">
-                          • 📱 {clienteSeleccionado.telefono}
-                        </span>
-                      )}
-                    </div>
-                    <button 
-                      onClick={() => {
-                        setClienteSeleccionado(null);
-                        setDocClientePOS('');
-                        setTelClientePOS('');
-                      }} 
-                      className="text-[#D32F2F] font-black text-xs hover:underline ml-2"
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                )}
-
-                {/* Filtros de Categoría y Búsqueda de Producto */}
+                {/* 5.2 Búsqueda de Productos y Filtro de Categoría Limpios */}
                 <div className="flex flex-wrap gap-2 pt-2 border-t">
                   <div className="relative flex-1 min-w-[200px]">
                     <Search className="w-4 h-4 text-[#212121]/50 absolute left-3 top-2.5" />
@@ -1874,13 +1698,19 @@ ${detalle}
                       type="text"
                       placeholder="Buscar producto por nombre..."
                       value={busquedaProdPOS}
-                      onChange={(e) => setBusquedaProdPOS(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 text-xs font-medium border-2 border-[#212121]/15 rounded-xl focus:border-[#E35336] outline-none"
+                      onChange={(e) => {
+                        setBusquedaProdPOS(e.target.value);
+                        setPaginaPOS(1);
+                      }}
+                      className="w-full pl-9 pr-3 py-1.5 text-xs font-medium border-2 border-[#212121]/15 rounded-xl focus:border-[#E35336] outline-none bg-slate-50/50"
                     />
                   </div>
                   <select
                     value={filtroCatPOS}
-                    onChange={(e) => setFiltroCatPOS(e.target.value)}
+                    onChange={(e) => {
+                      setFiltroCatPOS(e.target.value);
+                      setPaginaPOS(1);
+                    }}
                     className="text-xs font-bold px-3 py-1.5 border-2 border-[#212121]/15 rounded-xl bg-white outline-none focus:border-[#E35336]"
                   >
                     <option value="Todas">Todas las Categorías</option>
@@ -1892,21 +1722,20 @@ ${detalle}
                 </div>
               </div>
 
-              {/* Grid de Productos */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[580px] overflow-y-auto pr-1">
-                {productos
-                  .filter(p => {
-                    const matchNombre = p.nombre.toLowerCase().includes(busquedaProdPOS.toLowerCase());
-                    const matchCat = filtroCatPOS === 'Todas' || p.categoria === filtroCatPOS;
-                    return matchNombre && matchCat;
-                  })
-                  .map((p) => {
+              {/* Grid de Productos con Paginación */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-h-[380px]">
+                {productosPaginadosPOS.length === 0 ? (
+                  <div className="col-span-2 text-center py-12 text-[#212121]/40 text-xs font-bold">
+                    No se encontraron productos que coincidan con la búsqueda.
+                  </div>
+                ) : (
+                  productosPaginadosPOS.map((p) => {
                     const agotado = p.stock <= 0;
                     return (
                       <div
                         key={p.id}
                         className={`bg-white p-4 rounded-3xl border-2 transition shadow-xs flex flex-col justify-between ${
-                          agotado ? 'border-[#D32F2F]/30 bg-red-50/20 opacity-70' : 'border-[#212121]/10 hover:border-[#E35336]'
+                          agotado ? 'border-[#D32F2F]/30 bg-red-50/20 opacity-70' : 'border-[#212121]/10'
                         }`}
                       >
                         <div>
@@ -1949,55 +1778,177 @@ ${detalle}
                         </div>
                       </div>
                     );
-                  })}
+                  })
+                )}
               </div>
+
+              {/* 5.1 PAGINACIÓN DE PRODUCTOS ESTILO AMAZON: 1 2 3 4 5 → */}
+              {totalPaginasPOS > 1 && (
+                <div className="bg-white p-3 rounded-2xl border-2 border-[#212121]/10 flex items-center justify-center gap-1.5 text-xs font-bold">
+                  <button
+                    disabled={paginaPOS === 1}
+                    onClick={() => setPaginaPOS(prev => Math.max(1, prev - 1))}
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition"
+                  >
+                    ← Anterior
+                  </button>
+                  {Array.from({ length: totalPaginasPOS }, (_, i) => i + 1).map((num) => (
+                    <button
+                      key={num}
+                      onClick={() => setPaginaPOS(num)}
+                      className={`w-8 h-8 rounded-lg font-black transition ${
+                        paginaPOS === num
+                          ? 'bg-[#E35336] text-white shadow-md'
+                          : 'bg-slate-50 text-slate-700 hover:bg-slate-200 border border-slate-200'
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                  <button
+                    disabled={paginaPOS === totalPaginasPOS}
+                    onClick={() => setPaginaPOS(prev => Math.min(totalPaginasPOS, prev + 1))}
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition"
+                  >
+                    Siguiente →
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Columna Derecha: Carrito y Facturación */}
+            {/* Columna Derecha: Ticket de Venta Actual y Cobro */}
             <div className="lg:col-span-5">
-              <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-md flex flex-col h-full justify-between">
+              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs flex flex-col justify-between">
                 <div>
-                  <div className="flex items-center justify-between border-b pb-3 mb-4">
+                  <div className="flex items-center justify-between border-b pb-3 mb-3">
                     <div className="flex items-center gap-2">
                       <Receipt className="w-5 h-5 text-[#E35336]" />
-                      <h3 className="font-black text-lg text-[#212121]">Ticket de Venta Actual</h3>
+                      <h3 className="font-black text-lg text-[#212121]">Ticket Actual</h3>
                     </div>
-                    <span className="text-xs font-bold text-[#E35336]">{carrito.length} artículos</span>
+                    <span className="text-xs font-bold text-[#E35336]">{carrito.length} ítems</span>
                   </div>
 
-                  {/* Lista de Ítems */}
-                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                  {/* 5.3 CLIENTE OPCIONAL (Búsqueda por C.C. o Nombre) */}
+                  <div className="mb-3 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
+                    <span className="block text-[10px] font-black uppercase text-slate-500 mb-1">
+                      Cliente (Opcional):
+                    </span>
+
+                    {clienteSeleccionado ? (
+                      <div className="flex items-center justify-between bg-emerald-50 border border-emerald-300 p-2 rounded-xl text-xs">
+                        <div className="truncate mr-2">
+                          <span className="font-black text-emerald-900">{clienteSeleccionado.nombre}</span>
+                          <span className="text-[10px] text-emerald-700 ml-1.5">(Doc: {clienteSeleccionado.documento})</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setClienteSeleccionado(null)}
+                          className="text-[10px] bg-white border border-red-300 text-red-600 px-2 py-0.5 rounded-md font-bold hover:bg-red-50"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Buscar por C.C. o Nombre..."
+                          value={busquedaClientePOS}
+                          onFocus={() => setMostrarDropdownClientes(true)}
+                          onChange={(e) => {
+                            setBusquedaClientePOS(e.target.value);
+                            setMostrarDropdownClientes(true);
+                          }}
+                          className="w-full px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-xl bg-white outline-none focus:border-[#E35336]"
+                        />
+
+                        {mostrarDropdownClientes && busquedaClientePOS.trim().length > 0 && (
+                          <div className="absolute left-0 right-0 top-9 bg-white border-2 border-[#212121]/20 rounded-xl shadow-xl z-20 max-h-40 overflow-y-auto divide-y">
+                            {clientes
+                              .filter(c => c.documento.includes(busquedaClientePOS) || c.nombre.toLowerCase().includes(busquedaClientePOS.toLowerCase()))
+                              .map(c => (
+                                <div
+                                  key={c.id}
+                                  onClick={() => {
+                                    setClienteSeleccionado(c);
+                                    setBusquedaClientePOS('');
+                                    setMostrarDropdownClientes(false);
+                                  }}
+                                  className="p-2 text-xs hover:bg-[#FFF8DC] cursor-pointer flex justify-between items-center"
+                                >
+                                  <span className="font-bold text-[#212121]">{c.nombre}</span>
+                                  <span className="text-[10px] text-slate-500 font-mono">CC: {c.documento}</span>
+                                </div>
+                              ))}
+                            <div
+                              onClick={() => {
+                                setCliDoc(busquedaClientePOS.replace(/[^0-9]/g, ''));
+                                setModalCliente(true);
+                                setMostrarDropdownClientes(false);
+                              }}
+                              className="p-2 text-xs text-[#E35336] font-bold hover:bg-orange-50 cursor-pointer flex items-center gap-1"
+                            >
+                              <Plus className="w-3.5 h-3.5" /> Registrar nuevo cliente
+                            </div>
+                          </div>
+                        )}
+                        {!clienteSeleccionado && !busquedaClientePOS && (
+                          <p className="text-[10px] text-slate-400 mt-1 italic">
+                            Si no seleccionas cliente, la venta se registrará como Cliente General.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 7.1 & 7.2 LISTA DE ÍTEMS EN CARRITO CON ADAPTABILIDAD Y PAPELERA */}
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                     {carrito.length === 0 ? (
-                      <div className="text-center py-12 text-[#212121]/40 text-xs font-bold">
+                      <div className="text-center py-10 text-[#212121]/40 text-xs font-bold">
                         <ShoppingCart className="w-8 h-8 mx-auto mb-2 opacity-50" />
                         No has agregado ningún producto al ticket
                       </div>
                     ) : (
                       carrito.map((item, idx) => (
-                        <div key={idx} className="bg-[#FFF8DC]/30 p-2.5 rounded-2xl border border-[#212121]/10 flex items-center justify-between text-xs">
-                          <div>
-                            <p className="font-bold text-[#212121] leading-tight">{item.producto.nombre}</p>
+                        <div key={idx} className="bg-[#FFF8DC]/40 p-2.5 rounded-2xl border border-[#212121]/10 flex items-center justify-between text-xs gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-[#212121] leading-tight truncate">{item.producto.nombre}</p>
                             <span className="text-[10px] text-[#E35336] font-black uppercase">
                               {item.tipo_precio} • {formatoMoneda(item.precio_aplicado)}
                             </span>
                           </div>
-                          <div className="flex items-center gap-2">
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Botón Restar */}
                             <button
                               onClick={() => modificarCantidadCarrito(idx, -1)}
-                              className="w-6 h-6 rounded-lg bg-slate-200 text-[#212121] font-bold text-xs"
+                              className="w-6 h-6 rounded-lg bg-slate-200 hover:bg-slate-300 text-[#212121] font-bold text-xs flex items-center justify-center"
                             >
                               -
                             </button>
-                            <span className="font-black text-sm w-5 text-center">{item.cantidad}</span>
+                            {/* 7.1 Cantidad que no se desborda */}
+                            <span className="font-black text-xs min-w-[28px] text-center px-1">
+                              {item.cantidad}
+                            </span>
+                            {/* Botón Sumar */}
                             <button
                               onClick={() => modificarCantidadCarrito(idx, 1)}
-                              className="w-6 h-6 rounded-lg bg-slate-200 text-[#212121] font-bold text-xs"
+                              className="w-6 h-6 rounded-lg bg-slate-200 hover:bg-slate-300 text-[#212121] font-bold text-xs flex items-center justify-center"
                             >
                               +
                             </button>
-                            <span className="font-black text-sm text-[#212121] ml-2 w-16 text-right">
+                            {/* Subtotal del ítem */}
+                            <span className="font-black text-xs text-[#212121] min-w-[65px] text-right">
                               {formatoMoneda(item.total)}
                             </span>
+                            {/* 7.2 PAPELERA PARA ELIMINAR EL PRODUCTO COMPLETO */}
+                            <button
+                              onClick={() => eliminarDelCarrito(idx)}
+                              title="Eliminar producto del ticket"
+                              className="p-1 rounded-lg text-rose-500 hover:text-white hover:bg-rose-600 transition ml-1"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
                       ))
@@ -2006,24 +1957,20 @@ ${detalle}
                 </div>
 
                 {/* Totales y Cobro */}
-                <div className="border-t pt-4 mt-4 space-y-3">
-                  <div className="space-y-1.5 text-xs text-[#212121]/70">
+                <div className="border-t pt-3 mt-3 space-y-2.5">
+                  <div className="space-y-1 text-xs text-[#212121]/70">
                     <div className="flex justify-between">
-                      <span>Subtotal Venta:</span>
+                      <span>Subtotal:</span>
                       <span className="font-bold text-[#212121]">{formatoMoneda(totalesCarrito.subtotal)}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span>IVA Configurado:</span>
-                      <span className="font-bold text-[#212121]">{formatoMoneda(totalesCarrito.iva)}</span>
-                    </div>
-                    <div className="flex justify-between text-base font-black text-[#212121] pt-2 border-t">
+                    <div className="flex justify-between text-base font-black text-[#212121] pt-1 border-t">
                       <span>TOTAL A COBRAR:</span>
                       <span className="text-xl text-[#E35336]">{formatoMoneda(totalesCarrito.total)}</span>
                     </div>
                   </div>
 
                   {/* Método de Pago */}
-                  <div className="grid grid-cols-2 gap-2 pt-2">
+                  <div className="grid grid-cols-2 gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => setMetodoPagoPOS('efectivo')}
@@ -2048,12 +1995,28 @@ ${detalle}
                     </button>
                   </div>
 
+                  {/* 8. RECOMENDACIÓN VISUAL PARA TRANSFERENCIAS */}
+                  {metodoPagoPOS === 'transferencia' && (
+                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-semibold flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>💡 <strong>Recordatorio:</strong> No olvides tomarle foto o guardar el soporte de la transferencia bancaria.</span>
+                    </div>
+                  )}
+
+                  {/* 10. PREVENCIÓN DE DOBLE CLIC EN CONFIRMAR VENTA */}
                   <button
-                    disabled={carrito.length === 0}
+                    disabled={carrito.length === 0 || procesandoVenta}
                     onClick={handleProcesarVenta}
-                    className="w-full py-3.5 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-2xl text-sm shadow-lg hover:shadow-xl transition disabled:bg-slate-300 transform active:scale-98"
+                    className="w-full py-3.5 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-2xl text-sm shadow-lg hover:shadow-xl transition disabled:bg-slate-300 flex items-center justify-center gap-2"
                   >
-                    Confirmar Venta & Emitir Comprobante
+                    {procesandoVenta ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Procesando venta...</span>
+                      </>
+                    ) : (
+                      'Confirmar Venta & Emitir Ticket'
+                    )}
                   </button>
                 </div>
               </div>
@@ -2062,14 +2025,141 @@ ${detalle}
         )}
 
         {/* ============================================================ */}
-        {/* 3. MÓDULO: INVENTARIO (BULTOS, POLLOS, HUEVOS) */}
+        {/* 11. MÓDULO: VENTAS REALIZADAS (SIN BOTÓN 'NUEVA VENTA') */}
+        {/* ============================================================ */}
+        {moduloActivo === 'ventas' && (
+          <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
+              <div>
+                <h2 className="text-2xl font-black text-[#212121]">Historial de Ventas Realizadas</h2>
+                <p className="text-xs font-semibold text-[#212121]/60">Consulta, auditoría, anulación y exportación de operaciones</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => exportarVentasExcel(filtroVentasTiempo === 'hoy')}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Exportar a Excel
+                </button>
+              </div>
+            </div>
+
+            {/* Filtros de Búsqueda */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="w-4 h-4 text-[#212121]/50 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Buscar por cliente o producto..."
+                  value={busquedaVentasHist}
+                  onChange={(e) => setBusquedaVentasHist(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-xs font-medium border-2 border-[#212121]/15 rounded-xl focus:border-[#E35336] outline-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setFiltroVentasTiempo('hoy')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                    filtroVentasTiempo === 'hoy' ? 'bg-[#E35336] text-white shadow' : 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  Solo Hoy ({ventas.filter(v => esVentaDeHoy(v.fecha)).length})
+                </button>
+                <button
+                  onClick={() => setFiltroVentasTiempo('todas')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                    filtroVentasTiempo === 'todas' ? 'bg-[#E35336] text-white shadow' : 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  Historial Completo ({ventas.length})
+                </button>
+              </div>
+            </div>
+
+            {/* Tabla de Ventas */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#FFF8DC] text-[#212121] uppercase text-[11px] font-black border-b">
+                  <tr>
+                    <th className="py-3 px-3">Fecha y Hora</th>
+                    <th className="py-3 px-3">Cliente</th>
+                    <th className="py-3 px-3">Producto</th>
+                    <th className="py-3 px-3">Cant</th>
+                    <th className="py-3 px-3">Precio Unit.</th>
+                    <th className="py-3 px-3">Total Venta</th>
+                    <th className="py-3 px-3">Método</th>
+                    <th className="py-3 px-3">Vendedor</th>
+                    <th className="py-3 px-3">Estado</th>
+                    <th className="py-3 px-3 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {ventas
+                    .filter(v => {
+                      const matchTiempo = filtroVentasTiempo === 'todas' || esVentaDeHoy(v.fecha);
+                      const matchBusq = v.nombre_producto.toLowerCase().includes(busquedaVentasHist.toLowerCase()) ||
+                        v.cliente_nombre.toLowerCase().includes(busquedaVentasHist.toLowerCase());
+                      return matchTiempo && matchBusq;
+                    })
+                    .map((v) => {
+                      const esAnulada = v.estado === 'anulada';
+                      return (
+                        <tr key={v.id} className={esAnulada ? 'bg-red-50/50 line-through text-slate-400' : 'hover:bg-[#FFF8DC]/20'}>
+                          <td className="py-3 px-3">{new Date(v.fecha).toLocaleString()}</td>
+                          <td className="py-3 px-3 font-bold text-[#212121]">{v.cliente_nombre}</td>
+                          <td className="py-3 px-3">{v.nombre_producto}</td>
+                          <td className="py-3 px-3 font-black">{v.cantidad}</td>
+                          <td className="py-3 px-3">{formatoMoneda(v.precio_unitario)}</td>
+                          <td className="py-3 px-3 font-black text-[#212121]">{formatoMoneda(v.total_venta)}</td>
+                          <td className="py-3 px-3 capitalize">{v.metodo_pago}</td>
+                          <td className="py-3 px-3">{v.vendedor}</td>
+                          <td className="py-3 px-3">
+                            {esAnulada ? (
+                              <button
+                                onClick={() => setVentaVerMotivo(v)}
+                                className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-[#D32F2F] hover:underline"
+                                title="Haz clic para ver el motivo real de la anulación"
+                              >
+                                Anulada 🔍
+                              </button>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                                Completada
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            {!esAnulada && (
+                              <button
+                                disabled={procesandoAnulacion}
+                                onClick={() => handleAnularVenta(v)}
+                                className="px-3 py-1 bg-white border border-[#D32F2F] text-[#D32F2F] hover:bg-[#D32F2F] hover:text-white rounded-xl text-xs font-bold transition shadow-xs"
+                              >
+                                Anular
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* 14 & 21. MÓDULO: INVENTARIO (VENDEDOR NO CREA NI TIENE BOTÓN REPONER) */}
         {/* ============================================================ */}
         {moduloActivo === 'inventario' && (
-          <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6 animate-fade-in">
+          <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
               <div>
                 <h2 className="text-2xl font-black text-[#212121]">Control de Inventario y Productos</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">Administración de precios, costos, existencias y alertas</p>
+                <p className="text-xs font-semibold text-[#212121]/60">Existencias, referencias, costos y precios al detal y mayorista</p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -2080,6 +2170,7 @@ ${detalle}
                   <FileSpreadsheet className="w-4 h-4" />
                   Exportar a Excel
                 </button>
+                {/* 21. Vendedor NO puede crear productos */}
                 {usuario.rol === 'admin' && (
                   <button
                     onClick={() => {
@@ -2125,7 +2216,7 @@ ${detalle}
               </select>
             </div>
 
-            {/* Tabla de Productos */}
+            {/* Tabla de Inventario */}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-[#FFF8DC] text-[#212121] uppercase text-[11px] font-black border-b-2 border-[#212121]/10">
@@ -2135,9 +2226,8 @@ ${detalle}
                     <th className="py-3 px-3">Costo Compra</th>
                     <th className="py-3 px-3">Precio Detal</th>
                     <th className="py-3 px-3">Precio Mayorista</th>
-                    <th className="py-3 px-3">Margen Estimado</th>
                     <th className="py-3 px-3">Existencias</th>
-                    <th className="py-3 px-3">Valor Total</th>
+                    <th className="py-3 px-3">Valor en Bodega</th>
                     {usuario.rol === 'admin' && <th className="py-3 px-3 text-right">Acciones</th>}
                   </tr>
                 </thead>
@@ -2149,39 +2239,26 @@ ${detalle}
                       return matchNombre && matchCat;
                     })
                     .map((p) => {
-                      const margen = p.precio_venta - p.precio_compra;
-                      const margenPct = p.precio_compra > 0 ? ((margen / p.precio_compra) * 100).toFixed(0) : '0';
-                      const stockBajo = p.stock <= p.stock_minimo;
+                      const bajo = p.stock <= p.stock_minimo;
                       return (
                         <tr key={p.id} className="hover:bg-[#FFF8DC]/20">
                           <td className="py-3 px-3 font-bold text-[#212121]">{p.nombre}</td>
                           <td className="py-3 px-3">
-                            <span className="bg-[#FFF8DC] text-[#E35336] px-2 py-0.5 rounded-md font-bold text-[10px]">
-                              {p.categoria}
-                            </span>
+                            <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-bold uppercase">{p.categoria}</span>
                           </td>
-                          <td className="py-3 px-3 text-[#212121]/70">{formatoMoneda(p.precio_compra)}</td>
-                          <td className="py-3 px-3 font-black text-[#212121]">{formatoMoneda(p.precio_venta)}</td>
+                          <td className="py-3 px-3">{formatoMoneda(p.precio_compra)}</td>
+                          <td className="py-3 px-3 font-bold text-[#212121]">{formatoMoneda(p.precio_venta)}</td>
                           <td className="py-3 px-3 font-bold text-[#E35336]">{formatoMoneda(p.precio_mayorista)}</td>
                           <td className="py-3 px-3">
-                            <span className="font-bold text-emerald-800">+{formatoMoneda(margen)}</span>{' '}
-                            <span className="text-[10px] text-[#212121]/50">({margenPct}%)</span>
-                          </td>
-                          <td className="py-3 px-3">
-                            <span className={`font-black ${stockBajo ? 'text-[#D32F2F]' : 'text-[#212121]'}`}>
-                              {p.stock} {p.unidad_medida}s
+                            <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
+                              bajo ? 'bg-rose-100 text-[#D32F2F]' : 'bg-emerald-100 text-emerald-800'
+                            }`}>
+                              {p.stock} {p.unidad_medida}s {bajo && '⚠️ Mínimo'}
                             </span>
-                            {stockBajo && (
-                              <span className="ml-1 text-[10px] font-bold text-[#D32F2F] bg-red-50 px-1 rounded">
-                                ¡Mínimo!
-                              </span>
-                            )}
                           </td>
-                          <td className="py-3 px-3 font-bold text-[#212121]">
-                            {formatoMoneda(p.stock * p.precio_compra)}
-                          </td>
+                          <td className="py-3 px-3 font-black">{formatoMoneda(p.stock * p.precio_compra)}</td>
                           {usuario.rol === 'admin' && (
-                            <td className="py-3 px-3 text-right space-x-1">
+                            <td className="py-3 px-3 text-right">
                               <button
                                 onClick={() => {
                                   setEditandoProdId(p.id);
@@ -2192,20 +2269,13 @@ ${detalle}
                                   setProdPrecioMayor(String(p.precio_mayorista));
                                   setProdStock(String(p.stock));
                                   setProdStockMin(String(p.stock_minimo));
+                                  setProdIva(String(p.iva_porcentaje));
                                   setProdUnidad(p.unidad_medida);
                                   setModalProd(true);
                                 }}
-                                className="p-1 rounded bg-slate-100 hover:bg-[#FFF8DC] text-[#212121]"
-                                title="Editar producto"
+                                className="px-2.5 py-1 bg-white border border-[#212121]/30 hover:border-[#E35336] hover:text-[#E35336] rounded-lg text-[11px] font-bold transition"
                               >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleEliminarProducto(p.id)}
-                                className="p-1 rounded bg-rose-50 hover:bg-[#D32F2F] text-[#D32F2F] hover:text-white"
-                                title="Eliminar producto"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                Editar
                               </button>
                             </td>
                           )}
@@ -2219,178 +2289,168 @@ ${detalle}
         )}
 
         {/* ============================================================ */}
-        {/* 4. MÓDULO: CONTROL DE CAJA (APERTURA, ARQUEO Y CIERRE) */}
+        {/* 1 & 19. MÓDULO: CAJA (DINERO EN CAJA, ARQUEO Y CIERRE) */}
         {/* ============================================================ */}
         {moduloActivo === 'caja' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-black text-[#212121]">Control y Cuadre Diario de Caja</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">Administración de la base diaria, ingresos, egresos y cierre de jornada</p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => exportarVentasExcel(true)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition"
-                  title="Descargar archivo Excel con el resumen de ventas del día"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Descargar Resumen del Día (Excel)</span>
-                </button>
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
+                <div>
+                  <h2 className="text-2xl font-black text-[#212121]">Control de Caja & Arqueo Diario</h2>
+                  <p className="text-xs font-semibold text-[#212121]/60">Monitoreo del dinero en efectivo y transferencias</p>
+                </div>
                 {cajaActual?.estado === 'abierta' && (
                   <button
-                    onClick={() => setModalCierreCaja(true)}
-                    className="bg-[#D32F2F] hover:bg-[#b71c1c] text-white px-4 py-2.5 rounded-2xl font-black text-xs shadow-md transition flex items-center gap-2"
+                    onClick={() => {
+                      setDineroRealContado(String(efectivoFisicoEnCaja));
+                      setModalCierreCaja(true);
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#D32F2F] hover:bg-[#b71c1c] text-white font-black text-xs shadow-md transition"
                   >
                     <Lock className="w-4 h-4" />
-                    <span>Efectuar Cierre de Caja</span>
+                    Cerrar Caja de Hoy
                   </button>
                 )}
               </div>
-            </div>
 
-            {/* Si la caja está cerrada, mostrar tarjeta de Apertura */}
-            {(!cajaActual || cajaActual.estado === 'cerrada') && (
-              <div className="bg-white p-6 rounded-3xl border-4 border-[#E35336] shadow-md max-w-lg mx-auto text-center space-y-4">
-                <div className="inline-flex p-3 rounded-2xl bg-[#FFF8DC] text-[#E35336]">
-                  <Wallet className="w-8 h-8" />
-                </div>
-                <h3 className="text-xl font-black text-[#212121]">Apertura de Caja para la Jornada</h3>
-                <p className="text-xs text-[#212121]/60 leading-relaxed font-semibold">
-                  Ingresa con cuánto dinero en efectivo físico inicias la caja del día. Esto desbloqueará las ventas.
-                </p>
-
-                <form onSubmit={handleAperturaCaja} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-black text-[#212121] uppercase mb-1">Monto Base Inicial ($):</label>
+              {/* Si la caja está cerrada, mostrar formulario de apertura */}
+              {(!cajaActual || cajaActual.estado === 'cerrada') ? (
+                <div className="max-w-md mx-auto py-8 text-center space-y-4">
+                  <div className="p-4 bg-[#FFF8DC] text-[#E35336] rounded-3xl inline-block border-2 border-[#E35336]">
+                    <Wallet className="w-10 h-10" />
+                  </div>
+                  <h3 className="text-xl font-black text-[#212121]">Apertura de Jornada en Caja</h3>
+                  <p className="text-xs text-[#212121]/70 font-medium">
+                    Ingresa el monto de base con el que se inicia la caja hoy (efectivo para vueltas).
+                  </p>
+                  <form onSubmit={handleAperturaCaja} className="space-y-3">
                     <input
                       type="number"
                       required
-                      placeholder="Ej: 100000"
+                      placeholder="Monto base inicial (ej: 300000)"
                       value={montoAperturaInput}
                       onChange={(e) => setMontoAperturaInput(e.target.value)}
-                      className="w-full text-center text-lg font-black py-2.5 border-2 border-[#212121]/20 rounded-2xl focus:border-[#E35336] outline-none"
+                      className="w-full px-4 py-2.5 text-sm font-bold border-2 border-[#212121]/20 rounded-2xl focus:border-[#E35336] outline-none text-center"
                     />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-2xl text-xs shadow-md transition"
-                  >
-                    Confirmar Apertura de Caja
-                  </button>
-                </form>
-              </div>
-            )}
-
-            {/* Si la caja está abierta, mostrar cuadre en tiempo real */}
-            {cajaActual && cajaActual.estado === 'abierta' && (
-              <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6">
-                <div className="flex items-center justify-between border-b pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping"></span>
-                    <h3 className="font-black text-lg text-[#212121]">Jornada en Curso — Cuadre en Vivo</h3>
-                  </div>
-                  <span className="text-xs font-bold text-[#212121]/60">
-                    Apertura: {new Date(cajaActual.created_at).toLocaleDateString()} por {cajaActual.usuario_apertura}
-                  </span>
+                    <button
+                      type="submit"
+                      disabled={procesandoCaja}
+                      className="w-full py-3 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-2xl text-xs shadow-md transition disabled:opacity-50"
+                    >
+                      {procesandoCaja ? 'Abriendo caja...' : 'Confirmar Apertura de Caja'}
+                    </button>
+                  </form>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-center">
-                  <div className="p-4 bg-[#FFF8DC]/50 rounded-2xl border border-[#E35336]/30">
-                    <p className="text-[11px] font-bold text-[#212121]/60 uppercase">Dinero Inicial (Base)</p>
-                    <p className="text-xl font-black text-[#212121] mt-1">{formatoMoneda(cajaActual.monto_inicial)}</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  {/* Base Inicial */}
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                    <span className="text-[10px] font-black uppercase text-slate-500 block mb-1">Monto Base Apertura</span>
+                    <p className="text-xl font-black text-[#212121]">{formatoMoneda(cajaActual.monto_inicial)}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Registrado al abrir jornada</p>
                   </div>
 
-                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200">
-                    <p className="text-[11px] font-bold text-emerald-800 uppercase">+ Ventas en Efectivo</p>
-                    <p className="text-xl font-black text-emerald-700 mt-1">{formatoMoneda(totalVentasEfectivoHoy)}</p>
+                  {/* Ventas Efectivo */}
+                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200">
+                    <span className="text-[10px] font-black uppercase text-emerald-700 block mb-1">+ Ventas en Efectivo</span>
+                    <p className="text-xl font-black text-emerald-800">+{formatoMoneda(totalVentasEfectivoHoy)}</p>
+                    <p className="text-[10px] text-emerald-600 mt-1">Ingresos directos en caja</p>
                   </div>
 
-                  <div className="p-4 bg-rose-50 rounded-2xl border border-rose-200">
-                    <p className="text-[11px] font-bold text-rose-800 uppercase">- Gastos Operacionales</p>
-                    <p className="text-xl font-black text-[#D32F2F] mt-1">-{formatoMoneda(totalGastosHoy)}</p>
+                  {/* Ventas Transferencia */}
+                  <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200">
+                    <span className="text-[10px] font-black uppercase text-blue-700 block mb-1">Ventas por Transferencia</span>
+                    <p className="text-xl font-black text-blue-800">+{formatoMoneda(totalVentasTransfHoy)}</p>
+                    <p className="text-[10px] text-blue-600 mt-1">En banco / soporte digital</p>
                   </div>
 
-                  <div className="p-4 bg-[#212121] text-white rounded-2xl shadow-md border-2 border-[#E35336]">
-                    <p className="text-[11px] font-black uppercase text-[#FFF8DC]">Debe Haber en Caja Física</p>
-                    <p className="text-2xl font-black text-[#E35336] mt-1">{formatoMoneda(dineroEsperadoEnCaja)}</p>
+                  {/* Gastos Pagados */}
+                  <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200">
+                    <span className="text-[10px] font-black uppercase text-rose-700 block mb-1">- Gastos Operacionales</span>
+                    <p className="text-xl font-black text-rose-800">-{formatoMoneda(totalGastosHoy)}</p>
+                    <p className="text-[10px] text-rose-600 mt-1">Salidas de dinero autorizadas</p>
+                  </div>
+
+                  {/* 1.2 TOTAL DISPONIBLE EN CAJA (Destacado) */}
+                  <div className="md:col-span-4 p-5 rounded-3xl bg-[#FFF8DC] border-2 border-[#E35336] flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <span className="text-xs font-black uppercase text-[#E35336] block mb-1">Total Disponible en Caja (Efectivo + Transferencias):</span>
+                      <p className="text-3xl font-black text-[#212121]">{formatoMoneda(dineroTotalDisponibleEnCaja)}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-black text-slate-600 block">Efectivo Físico en Gaveta:</span>
+                      <p className="text-xl font-black text-[#E35336]">{formatoMoneda(efectivoFisicoEnCaja)}</p>
+                      <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Base + Ventas Efectivo - Gastos</p>
+                    </div>
                   </div>
                 </div>
-
-                <div className="p-3 rounded-2xl bg-slate-50 border text-xs font-semibold text-[#212121]/70 flex items-center justify-between">
-                  <span>📱 Ventas registradas por Transferencia (Nequi / Bancolombia): <strong>{formatoMoneda(totalVentasTransfHoy)}</strong></span>
-                  <span className="text-[11px] text-[#212121]/50">* No afecta el dinero en efectivo físico de la caja.</span>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Historial de Cierres de Caja */}
-            <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-4">
-              <h3 className="font-black text-lg text-[#212121] border-b pb-3">Historial de Cierres Diarios</h3>
-              {historialCierres.length === 0 ? (
-                <p className="text-xs text-[#212121]/40 text-center py-6">No hay registros de cierres anteriores.</p>
-              ) : (
+            {historialCierres.length > 0 && (
+              <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-4">
+                <h3 className="font-black text-lg text-[#212121] border-b pb-3">Historial de Cierres de Jornada</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-[#FFF8DC] uppercase font-black text-[10px] text-[#212121] border-b">
                       <tr>
                         <th className="py-2.5 px-3">Fecha y Hora</th>
-                        <th className="py-2.5 px-3">Base Inicial</th>
-                        <th className="py-2.5 px-3">Ventas Efectivo</th>
-                        <th className="py-2.5 px-3">Gastos</th>
-                        <th className="py-2.5 px-3">Esperado</th>
-                        <th className="py-2.5 px-3">Real Contado</th>
-                        <th className="py-2.5 px-3">Diferencia</th>
                         <th className="py-2.5 px-3">Responsable</th>
-                        <th className="py-2.5 px-3 text-right">Comprobante</th>
+                        <th className="py-2.5 px-3">Base</th>
+                        <th className="py-2.5 px-3">Ventas Efectivo</th>
+                        <th className="py-2.5 px-3">Ventas Transf</th>
+                        <th className="py-2.5 px-3">Gastos</th>
+                        <th className="py-2.5 px-3">Dinero Esperado</th>
+                        <th className="py-2.5 px-3">Dinero Contado</th>
+                        <th className="py-2.5 px-3">Diferencia</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-medium">
                       {historialCierres.map((c, i) => (
                         <tr key={i} className="hover:bg-slate-50">
                           <td className="py-2.5 px-3">{new Date(c.hora_cierre).toLocaleString()}</td>
+                          <td className="py-2.5 px-3 font-bold">{c.responsable}</td>
                           <td className="py-2.5 px-3">{formatoMoneda(c.monto_inicial)}</td>
-                          <td className="py-2.5 px-3 text-emerald-700 font-bold">{formatoMoneda(c.ventas_efectivo)}</td>
-                          <td className="py-2.5 px-3 text-rose-700">-{formatoMoneda(c.total_gastos)}</td>
-                          <td className="py-2.5 px-3 font-bold">{formatoMoneda(c.dinero_esperado)}</td>
+                          <td className="py-2.5 px-3 text-emerald-700 font-bold">+{formatoMoneda(c.ventas_efectivo)}</td>
+                          <td className="py-2.5 px-3 text-blue-700 font-bold">+{formatoMoneda(c.ventas_transferencia)}</td>
+                          <td className="py-2.5 px-3 text-rose-700 font-bold">-{formatoMoneda(c.total_gastos)}</td>
+                          <td className="py-2.5 px-3 font-black">{formatoMoneda(c.dinero_esperado)}</td>
                           <td className="py-2.5 px-3 font-black text-[#212121]">{formatoMoneda(c.dinero_real)}</td>
-                          <td className="py-2.5 px-3">
-                            <span className={`font-bold ${c.diferencia === 0 ? 'text-emerald-700' : c.diferencia > 0 ? 'text-blue-700' : 'text-[#D32F2F]'}`}>
-                              {c.diferencia > 0 ? `+${formatoMoneda(c.diferencia)}` : formatoMoneda(c.diferencia)}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3">{c.responsable}</td>
-                          <td className="py-2.5 px-3 text-right">
-                            <button
-                              onClick={() => setComprobanteCierreData(c)}
-                              className="px-2 py-1 rounded bg-[#FFF8DC] text-[#E35336] font-bold text-[10px] hover:bg-[#E35336] hover:text-white transition"
-                            >
-                              Ver / Imprimir
-                            </button>
+                          <td className={`py-2.5 px-3 font-black ${
+                            c.diferencia < 0 ? 'text-[#D32F2F]' : c.diferencia > 0 ? 'text-emerald-700' : 'text-slate-500'
+                          }`}>
+                            {formatoMoneda(c.diferencia)}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
         {/* ============================================================ */}
-        {/* 5. MÓDULO: CLIENTES */}
+        {/* 16. MÓDULO: CLIENTES (CONSULTAR, EDITAR Y GUARDAR) */}
         {/* ============================================================ */}
         {moduloActivo === 'clientes' && (
-          <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6 animate-fade-in">
+          <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
               <div>
-                <h2 className="text-2xl font-black text-[#212121]">Registro y Directorio de Clientes</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">Administración de clientes para facturación y envío de comprobantes</p>
+                <h2 className="text-2xl font-black text-[#212121]">Directorio de Clientes</h2>
+                <p className="text-xs font-semibold text-[#212121]/60">Administración, consulta y edición de datos de clientes</p>
               </div>
               <button
-                onClick={() => setModalCliente(true)}
+                onClick={() => {
+                  setEditandoClienteId(null);
+                  setCliDoc('');
+                  setCliNombre('');
+                  setCliTel('');
+                  setCliDir('');
+                  setModalCliente(true);
+                }}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#E35336] hover:bg-[#d0462a] text-white font-black text-xs shadow-md transition"
               >
                 <Plus className="w-4 h-4" />
@@ -2402,7 +2462,7 @@ ${detalle}
               <Search className="w-4 h-4 text-[#212121]/50 absolute left-3 top-3" />
               <input
                 type="text"
-                placeholder="Buscar por número de documento o nombre..."
+                placeholder="Buscar por cédula o nombre..."
                 value={busquedaCli}
                 onChange={(e) => setBusquedaCli(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 text-xs font-medium border-2 border-[#212121]/15 rounded-xl focus:border-[#E35336] outline-none"
@@ -2413,11 +2473,11 @@ ${detalle}
               <table className="w-full text-left text-xs">
                 <thead className="bg-[#FFF8DC] text-[#212121] uppercase text-[11px] font-black border-b">
                   <tr>
-                    <th className="py-3 px-3">Documento (Cédula/NIT)</th>
+                    <th className="py-3 px-3">Documento (C.C. / NIT)</th>
                     <th className="py-3 px-3">Nombre Completo</th>
-                    <th className="py-3 px-3">Teléfono WhatsApp</th>
+                    <th className="py-3 px-3">WhatsApp / Teléfono</th>
                     <th className="py-3 px-3">Dirección / Notas</th>
-                    <th className="py-3 px-3 text-right">Contacto</th>
+                    <th className="py-3 px-3 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
@@ -2427,20 +2487,37 @@ ${detalle}
                       <tr key={c.id} className="hover:bg-[#FFF8DC]/20">
                         <td className="py-3 px-3 font-bold text-[#212121]">{c.documento}</td>
                         <td className="py-3 px-3 font-bold">{c.nombre}</td>
-                        <td className="py-3 px-3">{c.telefono || 'Sin teléfono'}</td>
-                        <td className="py-3 px-3 text-[#212121]/70">{c.direccion || '-'}</td>
-                        <td className="py-3 px-3 text-right">
+                        <td className="py-3 px-3">
                           {c.telefono ? (
                             <a
                               href={`https://wa.me/57${c.telefono.replace(/[^0-9]/g, '')}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg font-bold hover:bg-emerald-100"
+                              className="text-emerald-700 font-bold hover:underline flex items-center gap-1"
                             >
-                              <Send className="w-3 h-3" /> WhatsApp
+                              <Send className="w-3 h-3" /> +57 {c.telefono}
                             </a>
                           ) : (
-                            <span className="text-[10px] text-slate-400">Sin WhatsApp</span>
+                            <span className="text-slate-400">Sin teléfono</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-[#212121]/70">{c.direccion || '-'}</td>
+                        <td className="py-3 px-3 text-right">
+                          {/* 16. Administrador puede editar datos de clientes */}
+                          {usuario.rol === 'admin' && (
+                            <button
+                              onClick={() => {
+                                setEditandoClienteId(c.id);
+                                setCliDoc(c.documento);
+                                setCliNombre(c.nombre);
+                                setCliTel(c.telefono || '');
+                                setCliDir(c.direccion || '');
+                                setModalCliente(true);
+                              }}
+                              className="px-2.5 py-1 bg-white border border-[#212121]/20 hover:border-[#E35336] hover:text-[#E35336] rounded-lg text-[11px] font-bold transition"
+                            >
+                              Editar
+                            </button>
                           )}
                         </td>
                       </tr>
@@ -2452,17 +2529,22 @@ ${detalle}
         )}
 
         {/* ============================================================ */}
-        {/* 6. MÓDULO: GASTOS (SOLO ADMIN) */}
+        {/* 17. MÓDULO: GASTOS OPERACIONALES (SOLO ADMIN PUEDE MODIFICAR/ELIMINAR) */}
         {/* ============================================================ */}
         {moduloActivo === 'gastos' && usuario.rol === 'admin' && (
-          <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6 animate-fade-in">
+          <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
               <div>
                 <h2 className="text-2xl font-black text-[#212121]">Gastos Operacionales DYM’S</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">Registro de salidas de dinero: arriendo, compras de bultos/aves y servicios</p>
+                <p className="text-xs font-semibold text-[#212121]/60">Registro de salidas de dinero: arriendo, compras y servicios</p>
               </div>
               <button
-                onClick={() => setModalGasto(true)}
+                onClick={() => {
+                  setEditandoGastoId(null);
+                  setGastoDesc('');
+                  setGastoMonto('');
+                  setModalGasto(true);
+                }}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#D32F2F] hover:bg-[#b71c1c] text-white font-black text-xs shadow-md transition"
               >
                 <Plus className="w-4 h-4" />
@@ -2477,7 +2559,8 @@ ${detalle}
                     <th className="py-3 px-3">Fecha</th>
                     <th className="py-3 px-3">Categoría</th>
                     <th className="py-3 px-3">Descripción</th>
-                    <th className="py-3 px-3 text-right">Monto Egresado</th>
+                    <th className="py-3 px-3">Monto Egresado</th>
+                    <th className="py-3 px-3 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
@@ -2490,8 +2573,29 @@ ${detalle}
                         </span>
                       </td>
                       <td className="py-3 px-3 font-bold text-[#212121]">{g.descripcion}</td>
-                      <td className="py-3 px-3 text-right font-black text-[#D32F2F]">
+                      <td className="py-3 px-3 font-black text-[#D32F2F]">
                         -{formatoMoneda(g.monto)}
+                      </td>
+                      {/* 17. Modificar y Eliminar Gasto disponibles ÚNICAMENTE para Admin */}
+                      <td className="py-3 px-3 text-right space-x-1">
+                        <button
+                          onClick={() => {
+                            setEditandoGastoId(g.id);
+                            setGastoCat(g.categoria);
+                            setGastoDesc(g.descripcion);
+                            setGastoMonto(String(g.monto));
+                            setModalGasto(true);
+                          }}
+                          className="px-2 py-1 bg-white border border-slate-300 hover:border-slate-500 rounded-lg text-[10px] font-bold text-slate-700"
+                        >
+                          Modificar
+                        </button>
+                        <button
+                          onClick={() => handleEliminarGasto(g.id)}
+                          className="px-2 py-1 bg-rose-50 border border-rose-300 hover:bg-rose-100 text-[#D32F2F] rounded-lg text-[10px] font-bold"
+                        >
+                          Eliminar
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -2502,14 +2606,14 @@ ${detalle}
         )}
 
         {/* ============================================================ */}
-        {/* 7. MÓDULO: REPORTES & INFORMES (SOLO ADMIN) */}
+        {/* 18. MÓDULO: REPORTES (SELECCIONAR VENTA Y VER/REIMPRIMIR TICKET) */}
         {/* ============================================================ */}
         {moduloActivo === 'reportes' && usuario.rol === 'admin' && (
-          <div className="space-y-6 animate-fade-in">
+          <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black text-[#212121]">Informes y Estadísticas del Negocio</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">Análisis de rentabilidad, exportaciones a Excel y depuración</p>
+                <p className="text-xs font-semibold text-[#212121]/60">Análisis de rentabilidad, reimpresión de comprobantes y exportaciones</p>
               </div>
               <button
                 onClick={() => exportarVentasExcel(false)}
@@ -2520,36 +2624,66 @@ ${detalle}
               </button>
             </div>
 
-            {/* Resumen Histórico de Ventas */}
             <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-4">
-              <h3 className="font-black text-lg text-[#212121] border-b pb-3">Últimas 50 Ventas Registradas</h3>
+              <h3 className="font-black text-lg text-[#212121] border-b pb-3">Últimas Ventas (Haz clic en una venta para ver o imprimir su ticket)</h3>
               <div className="overflow-x-auto max-h-96">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-[#FFF8DC] uppercase font-black text-[10px] text-[#212121] sticky top-0 border-b">
                     <tr>
-                      <th className="py-2 px-3">Fecha</th>
-                      <th className="py-2 px-3">Cliente</th>
-                      <th className="py-2 px-3">Producto</th>
-                      <th className="py-2 px-3">Cant</th>
-                      <th className="py-2 px-3">Precio</th>
-                      <th className="py-2 px-3">Total Venta</th>
-                      <th className="py-2 px-3">Ganancia Estimada</th>
-                      <th className="py-2 px-3">Pago</th>
-                      <th className="py-2 px-3">Vendedor</th>
+                      <th className="py-2.5 px-3">Fecha</th>
+                      <th className="py-2.5 px-3">Cliente</th>
+                      <th className="py-2.5 px-3">Producto</th>
+                      <th className="py-2.5 px-3">Cant</th>
+                      <th className="py-2.5 px-3">Total Venta</th>
+                      <th className="py-2.5 px-3">Ganancia</th>
+                      <th className="py-2.5 px-3">Pago</th>
+                      <th className="py-2.5 px-3">Vendedor</th>
+                      <th className="py-2.5 px-3 text-right">Tirilla / Ticket</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {ventas.map((v) => (
+                    {ventas.slice(0, 50).map((v) => (
                       <tr key={v.id} className="hover:bg-slate-50">
-                        <td className="py-2 px-3">{new Date(v.fecha).toLocaleDateString()}</td>
-                        <td className="py-2 px-3 font-bold">{v.cliente_nombre}</td>
-                        <td className="py-2 px-3">{v.nombre_producto}</td>
-                        <td className="py-2 px-3 font-black">{v.cantidad}</td>
-                        <td className="py-2 px-3">{formatoMoneda(v.precio_unitario)}</td>
-                        <td className="py-2 px-3 font-black text-[#212121]">{formatoMoneda(v.total_venta)}</td>
-                        <td className="py-2 px-3 font-bold text-emerald-700">+{formatoMoneda(v.ganancia_bruta)}</td>
-                        <td className="py-2 px-3 capitalize">{v.metodo_pago}</td>
-                        <td className="py-2 px-3 text-[#212121]/60">{v.vendedor}</td>
+                        <td className="py-2.5 px-3">{new Date(v.fecha).toLocaleDateString()}</td>
+                        <td className="py-2.5 px-3 font-bold">{v.cliente_nombre}</td>
+                        <td className="py-2.5 px-3">{v.nombre_producto}</td>
+                        <td className="py-2.5 px-3 font-black">{v.cantidad}</td>
+                        <td className="py-2.5 px-3 font-black text-[#212121]">{formatoMoneda(v.total_venta)}</td>
+                        <td className="py-2.5 px-3 font-bold text-emerald-700">+{formatoMoneda(v.ganancia_bruta)}</td>
+                        <td className="py-2.5 px-3 capitalize">{v.metodo_pago}</td>
+                        <td className="py-2.5 px-3 text-[#212121]/60">{v.vendedor}</td>
+                        {/* 18. Al seleccionar venta, aparece la tirilla/ticket para ver y reimprimir */}
+                        <td className="py-2.5 px-3 text-right">
+                          <button
+                            onClick={() => {
+                              setTicketVentaData({
+                                numero: v.id,
+                                fecha: new Date(v.fecha).toLocaleString(),
+                                cliente: v.cliente_nombre,
+                                documento: v.cliente_documento || 'C.C.',
+                                telefono: '',
+                                esClienteRegistrado: v.cliente_nombre !== 'Cliente General',
+                                items: [{
+                                  producto: { nombre: v.nombre_producto, precio_venta: v.precio_unitario, precio_compra: v.costo_unitario, categoria: '' },
+                                  cantidad: v.cantidad,
+                                  tipo_precio: v.tipo_precio || 'detal',
+                                  precio_aplicado: v.precio_unitario,
+                                  subtotal: v.total_venta,
+                                  iva_monto: 0,
+                                  total: v.total_venta
+                                }],
+                                subtotal: v.total_venta,
+                                iva: 0,
+                                total: v.total_venta,
+                                metodo: v.metodo_pago,
+                                vendedor: v.vendedor
+                              });
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#212121] hover:bg-[#E35336] text-white rounded-lg text-[10px] font-bold transition"
+                          >
+                            <Receipt className="w-3 h-3" /> Ver Ticket
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2561,429 +2695,84 @@ ${detalle}
       </main>
 
       {/* ============================================================ */}
-      {/* MODAL: REGISTRAR / EDITAR PRODUCTO CON SUGERIDOR DE PRECIOS */}
+      {/* 6. MODAL: TICKET DE VENTA (DISEÑO LIMPIO, UNA SOLA IMPRESIÓN) */}
       {/* ============================================================ */}
-      {modalProd && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border-4 border-[#E35336]">
-            <div className="flex justify-between items-center mb-4 border-b pb-2">
-              <h3 className="text-xl font-black text-[#212121]">
-                {editandoProdId ? 'Editar Producto' : 'Nuevo Producto en DYM’S'}
-              </h3>
-              <button onClick={() => setModalProd(false)} className="text-2xl font-black text-[#212121]/40 hover:text-[#D32F2F]">✕</button>
-            </div>
-
-            <form onSubmit={handleGuardarProducto} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-black text-[#212121] uppercase mb-1">Nombre del Producto:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Purina Engorde 40kg, Pollo Campesino, Huevo AA"
-                  value={prodNombre}
-                  onChange={(e) => setProdNombre(e.target.value)}
-                  className="w-full text-xs font-bold px-3 py-2 border-2 border-[#212121]/20 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-black text-[#212121] uppercase mb-1">Categoría:</label>
-                  <select
-                    value={prodCategoria}
-                    onChange={(e) => setProdCategoria(e.target.value)}
-                    className="w-full text-xs font-bold px-3 py-2 border-2 border-[#212121]/20 rounded-xl bg-white outline-none focus:border-[#E35336]"
-                  >
-                    <option value="Purinas y Concentrados">Purinas y Concentrados</option>
-                    <option value="Pollos y Aves">Pollos y Aves</option>
-                    <option value="Huevos">Huevos</option>
-                    <option value="Otros">Otros</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-[#212121] uppercase mb-1">Unidad de Medida:</label>
-                  <select
-                    value={prodUnidad}
-                    onChange={(e) => setProdUnidad(e.target.value)}
-                    className="w-full text-xs font-bold px-3 py-2 border-2 border-[#212121]/20 rounded-xl bg-white outline-none focus:border-[#E35336]"
-                  >
-                    <option value="bulto">Bulto</option>
-                    <option value="unidad">Unidad (Pollo/Ave)</option>
-                    <option value="panal">Panal (30 Huevos)</option>
-                    <option value="kilo">Kilo</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Sugeridor de Precios según Costo y Margen */}
-              <div className="bg-[#FFF8DC] p-3.5 rounded-2xl border-2 border-[#E35336]/40 space-y-2.5">
-                <div className="flex items-center gap-1.5 text-xs font-black text-[#E35336]">
-                  <Calculator className="w-4 h-4" />
-                  <span>Sugeridor Automático de Precios</span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-bold text-[#212121] uppercase">Costo Compra ($):</label>
-                    <input
-                      type="number"
-                      required
-                      placeholder="95000"
-                      value={prodCosto}
-                      onChange={(e) => handleCostoChange(e.target.value)}
-                      className="w-full text-xs font-black px-2.5 py-1.5 bg-white border border-[#212121]/20 rounded-lg outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-[#212121] uppercase">% Ganancia Deseada:</label>
-                    <input
-                      type="number"
-                      placeholder="20"
-                      value={prodMargenDeseado}
-                      onChange={(e) => handleMargenChange(e.target.value)}
-                      className="w-full text-xs font-black px-2.5 py-1.5 bg-white border border-[#212121]/20 rounded-lg outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <label className="block text-[10px] font-black text-[#212121] uppercase">Precio Venta Detal ($):</label>
-                    <input
-                      type="number"
-                      required
-                      value={prodPrecioDetal}
-                      onChange={(e) => setProdPrecioDetal(e.target.value)}
-                      className="w-full text-xs font-black px-2.5 py-1.5 bg-white border-2 border-[#E35336] rounded-lg outline-none text-[#E35336]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-[#212121] uppercase">Precio Mayorista ($):</label>
-                    <input
-                      type="number"
-                      required
-                      value={prodPrecioMayor}
-                      onChange={(e) => setProdPrecioMayor(e.target.value)}
-                      className="w-full text-xs font-black px-2.5 py-1.5 bg-white border-2 border-[#212121]/40 rounded-lg outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-black text-[#212121] uppercase mb-1">IVA (%):</label>
-                  <select
-                    value={prodIVA}
-                    onChange={(e) => setProdIVA(e.target.value)}
-                    className="w-full text-xs font-bold px-2.5 py-2 border-2 border-[#212121]/20 rounded-xl bg-white outline-none"
-                  >
-                    <option value="0">0% (Exento)</option>
-                    <option value="5">5%</option>
-                    <option value="19">19%</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-[#212121] uppercase mb-1">Stock Actual:</label>
-                  <input
-                    type="number"
-                    required
-                    value={prodStock}
-                    onChange={(e) => setProdStock(e.target.value)}
-                    className="w-full text-xs font-black px-2.5 py-2 border-2 border-[#212121]/20 rounded-xl outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-[#212121] uppercase mb-1">Stock Mínimo:</label>
-                  <input
-                    type="number"
-                    value={prodStockMin}
-                    onChange={(e) => setProdStockMin(e.target.value)}
-                    className="w-full text-xs font-black px-2.5 py-2 border-2 border-[#212121]/20 rounded-xl outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-3 border-t">
-                <button
-                  type="button"
-                  onClick={() => setModalProd(false)}
-                  className="flex-1 py-2.5 border-2 border-[#212121]/20 rounded-xl font-bold text-xs text-[#212121]"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-xl text-xs shadow-md"
-                >
-                  Guardar Producto
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================ */}
-      {/* MODAL: REGISTRAR CLIENTE */}
-      {/* ============================================================ */}
-      {modalCliente && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border-4 border-[#212121]">
-            <div className="flex justify-between items-center mb-4 border-b pb-2">
-              <h3 className="text-xl font-black text-[#212121]">Registrar Nuevo Cliente</h3>
-              <button onClick={() => setModalCliente(false)} className="text-2xl font-black text-[#212121]/40">✕</button>
-            </div>
-
-            <form onSubmit={handleGuardarCliente} className="space-y-3">
-              <div>
-                <label className="block text-xs font-black text-[#212121] uppercase mb-1">Cédula / NIT (Único):</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: 1098765432"
-                  value={cliDoc}
-                  onChange={(e) => setCliDoc(e.target.value)}
-                  className="w-full text-xs font-bold px-3 py-2 border-2 border-[#212121]/20 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-black text-[#212121] uppercase mb-1">Nombre Completo:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Granja San Jorge / Juan Gómez"
-                  value={cliNombre}
-                  onChange={(e) => setCliNombre(e.target.value)}
-                  className="w-full text-xs font-bold px-3 py-2 border-2 border-[#212121]/20 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-black text-[#212121] uppercase mb-1">Teléfono WhatsApp:</label>
-                <input
-                  type="tel"
-                  placeholder="Ej: 3101234567"
-                  value={cliTel}
-                  onChange={(e) => setCliTel(e.target.value)}
-                  className="w-full text-xs font-bold px-3 py-2 border-2 border-[#212121]/20 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-black text-[#212121] uppercase mb-1">Dirección / Vereda:</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Vereda El Hato, Galpón 2"
-                  value={cliDir}
-                  onChange={(e) => setCliDir(e.target.value)}
-                  className="w-full text-xs font-bold px-3 py-2 border-2 border-[#212121]/20 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-3 border-t">
-                <button
-                  type="button"
-                  onClick={() => setModalCliente(false)}
-                  className="flex-1 py-2.5 border-2 border-[#212121]/20 rounded-xl font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-[#E35336] text-white font-black rounded-xl text-xs shadow-md"
-                >
-                  Guardar Cliente
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================ */}
-      {/* MODAL: CONFIRMAR CIERRE DIARIO DE CAJA */}
-      {/* ============================================================ */}
-      {modalCierreCaja && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border-4 border-[#D32F2F] animate-scale-up">
-            <div className="flex justify-between items-center mb-4 border-b pb-2">
-              <div className="flex items-center gap-2">
-                <Lock className="w-6 h-6 text-[#D32F2F]" />
-                <h3 className="text-xl font-black text-[#212121]">Cierre Diario de Caja — DYM’S</h3>
-              </div>
-              <button onClick={() => setModalCierreCaja(false)} className="text-2xl font-black text-[#212121]/40">✕</button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="bg-[#FFF8DC] p-4 rounded-2xl border border-[#E35336]/40 text-xs space-y-1.5 font-bold">
-                <div className="flex justify-between">
-                  <span>Dinero Inicial (Base):</span>
-                  <span className="text-[#212121]">{formatoMoneda(cajaActual?.monto_inicial || 0)}</span>
-                </div>
-                <div className="flex justify-between text-emerald-800">
-                  <span>+ Ventas Efectivo:</span>
-                  <span>+{formatoMoneda(totalVentasEfectivoHoy)}</span>
-                </div>
-                <div className="flex justify-between text-rose-800">
-                  <span>- Gastos Egresados:</span>
-                  <span>-{formatoMoneda(totalGastosHoy)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-black text-[#212121] pt-2 border-t border-[#E35336]/30">
-                  <span>DINERO ESPERADO EN CAJA:</span>
-                  <span className="text-[#E35336] text-base">{formatoMoneda(dineroEsperadoEnCaja)}</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-[#212121] uppercase mb-1">
-                  Dinero Real Contado Físicamente ($):
-                </label>
-                <input
-                  type="number"
-                  required
-                  placeholder="Ingresa el valor total contado en billetes y monedas"
-                  value={dineroRealContado}
-                  onChange={(e) => setDineroRealContado(e.target.value)}
-                  className="w-full text-center text-lg font-black py-2.5 border-2 border-[#D32F2F] rounded-2xl focus:ring-2 focus:ring-[#D32F2F]/20 outline-none"
-                />
-                {dineroRealContado !== '' && (
-                  <p className="text-xs font-black text-center mt-1.5">
-                    Diferencia:{' '}
-                    <span className={Number(dineroRealContado) - dineroEsperadoEnCaja === 0 ? 'text-emerald-700' : 'text-[#D32F2F]'}>
-                      {formatoMoneda(Number(dineroRealContado) - dineroEsperadoEnCaja)}
-                      {Number(dineroRealContado) - dineroEsperadoEnCaja === 0 ? ' (¡Caja Cuadrada Exacta!)' : ' (Descuadre)'}
-                    </span>
+      {ticketVentaData && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4 my-8">
+            {/* ZONA DE TICKET IMPRIMIBLE (80mm) */}
+            <div id="ticket-imprimible" className="font-mono text-xs text-[#212121] space-y-2 border-b-2 border-dashed pb-3">
+              <div className="text-center space-y-0.5">
+                <h3 className="text-lg font-black tracking-tight text-black">DYM’S</h3>
+                <p className="text-[10px] font-bold text-black uppercase">Nutrición & Producción Agropecuaria</p>
+                <p className="text-[9px] text-black">NIT: 901.458.712-4</p>
+                <p className="text-[9px] text-black">Ticket Nro: #{ticketVentaData.numero}</p>
+                <p className="text-[9px] text-black">Fecha: {ticketVentaData.fecha}</p>
+                <p className="text-[9px] text-black">Atendido por: {ticketVentaData.vendedor}</p>
+                {ticketVentaData.esClienteRegistrado && ticketVentaData.cliente !== 'Cliente General' && (
+                  <p className="text-[9px] font-bold text-black mt-1">
+                    Cliente: {ticketVentaData.cliente} (Doc: {ticketVentaData.documento})
                   </p>
                 )}
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-[#212121] mb-1">Observaciones del Cierre:</label>
-                <textarea
-                  rows={2}
-                  placeholder="Ej: Turno entregado sin novedades, billetes guardados en sobre."
-                  value={obsCierre}
-                  onChange={(e) => setObsCierre(e.target.value)}
-                  className="w-full text-xs font-medium p-2.5 border-2 border-[#212121]/20 rounded-xl outline-none"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-2 border-t">
-                <button
-                  type="button"
-                  onClick={() => setModalCierreCaja(false)}
-                  className="flex-1 py-3 border-2 border-[#212121]/20 rounded-xl font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmarCierreCaja}
-                  className="flex-1 py-3 bg-[#D32F2F] hover:bg-[#b71c1c] text-white font-black rounded-xl text-xs shadow-md transition"
-                >
-                  Confirmar y Cerrar Jornada
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================ */}
-      {/* MODAL COMPROBANTE TICKET DE VENTA (IMPRIMIBLE & WHATSAPP) */}
-      {/* ============================================================ */}
-      {ticketVentaData && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border-4 border-[#E35336]">
-            {/* Cabecera Ticket */}
-            <div id="ticket-impresion" className="text-center space-y-1 font-mono text-xs border-b pb-4">
-              <h2 className="text-2xl font-black text-[#212121] tracking-tighter">DYM’S</h2>
-              <p className="text-[10px] text-[#212121]/70">Nutrición y Producción Agropecuaria</p>
-              <p className="text-[10px] text-[#212121]/70">Ticket #: {ticketVentaData.numero}</p>
-              <p className="text-[10px] text-[#212121]/70">Fecha: {ticketVentaData.fecha}</p>
-              <div className="text-left pt-2 text-[10px]">
-                <p><strong>Cliente:</strong> {ticketVentaData.cliente}</p>
-                <p><strong>Doc:</strong> {ticketVentaData.documento}</p>
-                <p><strong>Vendedor:</strong> {ticketVentaData.vendedor}</p>
-              </div>
-            </div>
-
-            {/* Detalle Items */}
-            <div className="py-3 font-mono text-[11px] space-y-1.5 border-b max-h-48 overflow-y-auto">
-              {ticketVentaData.items.map((it: ItemCarrito, i: number) => (
-                <div key={i} className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold">{it.cantidad}x {it.producto.nombre}</p>
-                    <span className="text-[9px] text-[#212121]/60">({it.tipo_precio})</span>
+              {/* Detalle de Productos */}
+              <div className="border-t border-b border-black py-2 my-2 space-y-1">
+                <div className="flex justify-between font-black text-[10px]">
+                  <span>CANT / PRODUCTO</span>
+                  <span>TOTAL</span>
+                </div>
+                {ticketVentaData.items.map((it: ItemCarrito, i: number) => (
+                  <div key={i} className="flex justify-between text-[11px] leading-tight">
+                    <span className="truncate mr-2">{it.cantidad}x {it.producto.nombre}</span>
+                    <span className="font-black whitespace-nowrap">{formatoMoneda(it.total)}</span>
                   </div>
-                  <span className="font-black">{formatoMoneda(it.total)}</span>
+                ))}
+              </div>
+
+              {/* Totales */}
+              <div className="space-y-1 text-[11px]">
+                <div className="flex justify-between">
+                  <span>Subtotal:</span>
+                  <span>{formatoMoneda(ticketVentaData.subtotal)}</span>
                 </div>
-              ))}
+                {ticketVentaData.iva > 0 && (
+                  <div className="flex justify-between">
+                    <span>IVA:</span>
+                    <span>{formatoMoneda(ticketVentaData.iva)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-black pt-1 border-t border-black">
+                  <span>TOTAL:</span>
+                  <span>{formatoMoneda(ticketVentaData.total)}</span>
+                </div>
+                <div className="flex justify-between text-[10px] uppercase">
+                  <span>Método de Pago:</span>
+                  <span>{ticketVentaData.metodo}</span>
+                </div>
+              </div>
+
+              <div className="text-center pt-2 text-[9px] font-bold">
+                <p>¡Gracias por su compra!</p>
+              </div>
             </div>
 
-            {/* Totales */}
-            <div className="py-3 font-mono text-xs space-y-1">
-              <div className="flex justify-between">
-                <span>Subtotal:</span>
-                <span>{formatoMoneda(ticketVentaData.subtotal)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>IVA:</span>
-                <span>{formatoMoneda(ticketVentaData.iva)}</span>
-              </div>
-              <div className="flex justify-between text-sm font-black text-[#E35336] pt-1 border-t">
-                <span>TOTAL:</span>
-                <span>{formatoMoneda(ticketVentaData.total)}</span>
-              </div>
-              <div className="flex justify-between text-[10px] text-[#212121]/60">
-                <span>Pago:</span>
-                <span className="uppercase">{ticketVentaData.metodo}</span>
-              </div>
-            </div>
-
-            {/* Acciones del Ticket con Doble WhatsApp */}
-            <div className="space-y-2 pt-3 border-t">
-              {/* WhatsApp del Cliente (Muestra el automático o permite ingresarlo/cambiarlo al instante) */}
-              <div className="bg-emerald-50 p-2 rounded-xl border border-emerald-600/30 flex items-center justify-between text-[11px]">
-                <div className="text-emerald-950 truncate mr-2">
-                  <span className="font-bold">WhatsApp Cliente:</span>{' '}
-                  {ticketVentaData.telefono ? (
-                    <span className="font-mono text-emerald-700 font-black">+57 {ticketVentaData.telefono}</span>
-                  ) : (
-                    <span className="text-slate-500 italic text-[10px]">Sin registrar</span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nuevo = prompt('Ingresa o modifica el número de WhatsApp del cliente para enviarle la factura:', ticketVentaData.telefono || '');
-                    if (nuevo !== null) {
-                      const limpio = nuevo.replace(/[^0-9]/g, '');
-                      setTicketVentaData({ ...ticketVentaData, telefono: limpio });
-                    }
-                  }}
-                  className="text-[10px] bg-white border border-emerald-600/30 px-2 py-0.5 rounded-md font-bold text-emerald-700 hover:bg-emerald-600 hover:text-white transition shrink-0"
+            {/* BOTONES INTERACTIVOS (NO SE IMPRIMEN) */}
+            <div className="space-y-2 pt-1 no-print">
+              {/* 5.3 WHATSAPP AL CLIENTE: SOLO SI FUE SELECCIONADO */}
+              {ticketVentaData.esClienteRegistrado && ticketVentaData.cliente !== 'Cliente General' && (
+                <a
+                  href={generarLinkWhatsAppCliente(ticketVentaData)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow transition"
                 >
-                  {ticketVentaData.telefono ? 'Cambiar' : '+ Ingresar número'}
-                </button>
-              </div>
+                  <Send className="w-4 h-4 shrink-0" />
+                  <span>Enviar Factura al Cliente por WhatsApp</span>
+                </a>
+              )}
 
-              {/* Botón 1: Enviar Comprobante / Factura al Cliente */}
-              <a
-                href={generarLinkWhatsAppCliente(ticketVentaData)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow transition"
-              >
-                <Send className="w-4 h-4 shrink-0" />
-                <div className="text-left">
-                  <span className="block leading-tight font-black">Enviar Factura al Cliente</span>
-                  <span className="text-[10px] text-emerald-100 font-normal">
-                    {ticketVentaData.telefono ? `Enviar directo a: +57 ${ticketVentaData.telefono}` : '(Haz clic para abrir WhatsApp)'}
-                  </span>
-                </div>
-              </a>
-
-              {/* Botón 2: Notificar Venta al Dueño */}
+              {/* NOTIFICAR AL DUEÑO (SIEMPRE DISPONIBLE) */}
               <a
                 href={generarLinkWhatsAppAdmin(ticketVentaData)}
                 target="_blank"
@@ -2991,42 +2780,19 @@ ${detalle}
                 className="w-full py-2.5 bg-[#E35336] hover:bg-[#c9452b] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow transition"
               >
                 <AlertCircle className="w-4 h-4 shrink-0" />
-                <div className="text-left">
-                  <span className="block leading-tight font-black">Notificar Venta al Dueño</span>
-                  <span className="text-[10px] text-orange-100 font-normal">
-                    Alerta a: +57 {telefonoAdmin}
-                  </span>
-                </div>
+                <span>Notificar Venta al Dueño (+57 {telefonoAdmin})</span>
               </a>
 
-              {/* Teléfono del Dueño configurable */}
-              <div className="bg-[#FFF8DC] p-2 rounded-xl border border-[#E35336]/30 flex items-center justify-between text-[11px]">
-                <div className="text-[#212121]">
-                  <span className="font-bold">Tel. Dueño:</span> <span className="font-mono text-[#E35336] font-black">+57 {telefonoAdmin}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nuevo = prompt('Número de WhatsApp del Dueño para notificaciones (sin espacios):', telefonoAdmin);
-                    if (nuevo && nuevo.trim()) {
-                      const limpio = nuevo.replace(/[^0-9]/g, '');
-                      setTelefonoAdmin(limpio);
-                      localStorage.setItem('dyms_tel_admin', limpio);
-                    }
-                  }}
-                  className="text-[10px] bg-white border border-[#212121]/20 px-2 py-0.5 rounded-md font-bold text-[#E35336] hover:bg-[#E35336] hover:text-white transition"
-                >
-                  Cambiar
-                </button>
-              </div>
-
+              {/* 6.2 IMPRESIÓN DEL TICKET (UNA SOLA IMPRESIÓN) */}
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="w-full py-2 bg-[#212121] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 hover:bg-black transition"
+                className="w-full py-2.5 bg-[#212121] hover:bg-black text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow transition"
               >
-                <Printer className="w-4 h-4" /> Imprimir Ticket
+                <Printer className="w-4 h-4" />
+                <span>Imprimir Ticket</span>
               </button>
+
               <button
                 type="button"
                 onClick={() => setTicketVentaData(null)}
@@ -3040,182 +2806,98 @@ ${detalle}
       )}
 
       {/* ============================================================ */}
-      {/* MODAL DETALLE DE ALERTAS DE STOCK BAJO O AGOTADO */}
+      {/* 13. MODAL: CONSULTA MOTIVO REAL DE ANULACIÓN */}
       {/* ============================================================ */}
-      {modalAlertasStock && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl border-4 border-[#D32F2F] max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between border-b pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-[#D32F2F]/10 text-[#D32F2F] rounded-2xl">
-                  <AlertTriangle className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-black text-[#212121]">Alertas de Inventario: Stock Crítico</h3>
-                  <p className="text-xs text-[#212121]/60 font-semibold">
-                    Productos que han alcanzado o están por debajo del stock mínimo establecido
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setModalAlertasStock(false)}
-                className="p-2 text-[#212121]/50 hover:text-[#212121] rounded-xl hover:bg-slate-100 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      {ventaVerMotivo && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-2 text-[#D32F2F]">
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="font-black text-base">Detalle de Venta Anulada</h3>
             </div>
-
-            {/* Lista de productos bajo stock */}
-            <div className="py-4 overflow-y-auto flex-1 space-y-3">
-              {productos.filter(p => p.stock <= p.stock_minimo).length === 0 ? (
-                <div className="text-center py-12 space-y-2">
-                  <div className="inline-flex p-4 rounded-full bg-emerald-100 text-emerald-700">
-                    <CheckCircle2 className="w-8 h-8" />
-                  </div>
-                  <h4 className="font-black text-lg text-[#212121]">¡Inventario en Niveles Óptimos!</h4>
-                  <p className="text-xs text-[#212121]/60">
-                    Todos los productos de DYM’S cuentan con stock suficiente por encima del mínimo.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {productos
-                    .filter(p => p.stock <= p.stock_minimo)
-                    .map((prod) => (
-                      <div key={prod.id} className="py-3 flex flex-wrap items-center justify-between gap-3 hover:bg-[#FFF8DC]/40 p-3 rounded-2xl transition">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-black text-sm text-[#212121]">{prod.nombre}</h4>
-                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-[#FFF8DC] text-[#E35336] border border-[#E35336]/30">
-                              {prod.categoria}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3 mt-1 text-xs text-[#212121]/70">
-                            <span>Costo Compra: <strong>{formatoMoneda(prod.precio_compra)}</strong></span>
-                            <span>•</span>
-                            <span>Venta Sugerida: <strong>{formatoMoneda(prod.precio_venta)}</strong></span>
-                            <span>•</span>
-                            <span>Unidad: <strong>{prod.unidad_medida}</strong></span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <span className={`inline-block px-3 py-1 rounded-xl text-xs font-black ${
-                              prod.stock === 0 
-                                ? 'bg-black text-white' 
-                                : 'bg-[#D32F2F]/15 text-[#D32F2F] border border-[#D32F2F]/30'
-                            }`}>
-                              {prod.stock === 0 ? 'AGOTADO (0)' : `${prod.stock} disponibles`}
-                            </span>
-                            <p className="text-[10px] text-[#212121]/50 mt-0.5">
-                              Mínimo requerido: {prod.stock_minimo}
-                            </p>
-                          </div>
-
-                          <button
-                            onClick={() => {
-                              setModalAlertasStock(false);
-                              setBusquedaInv(prod.nombre);
-                              setModuloActivo('inventario');
-                            }}
-                            className="px-3 py-2 bg-[#212121] hover:bg-[#E35336] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
-                          >
-                            <span>Reponer</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-
-            {/* Pie del modal */}
-            <div className="pt-4 border-t flex flex-wrap items-center justify-between gap-3">
-              <span className="text-xs text-[#212121]/60 font-semibold">
-                Mostrando {productos.filter(p => p.stock <= p.stock_minimo).length} producto(s) en nivel crítico
-              </span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModalAlertasStock(false);
-                    setModuloActivo('inventario');
-                  }}
-                  className="px-4 py-2 bg-[#E35336] hover:bg-[#c9452b] text-white rounded-xl text-xs font-bold transition"
-                >
-                  Ir al Inventario Completo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setModalAlertasStock(false)}
-                  className="px-4 py-2 border-2 border-[#212121]/20 hover:bg-slate-100 rounded-xl text-xs font-bold text-[#212121]"
-                >
-                  Cerrar
-                </button>
+            <div className="bg-rose-50 border border-rose-200 p-3.5 rounded-2xl text-xs space-y-1.5">
+              <p><strong>Venta Nro:</strong> #{ventaVerMotivo.id}</p>
+              <p><strong>Producto:</strong> {ventaVerMotivo.nombre_producto} ({ventaVerMotivo.cantidad} uds)</p>
+              <p><strong>Total Anulado:</strong> {formatoMoneda(ventaVerMotivo.total_venta)}</p>
+              <p><strong>Vendedor Responsable:</strong> {ventaVerMotivo.vendedor}</p>
+              <div className="pt-2 border-t border-rose-200">
+                <span className="font-black text-[#D32F2F] block">Motivo Registrado (Máx 40 Caracteres):</span>
+                <p className="text-sm font-bold text-black mt-0.5">
+                  "{ventaVerMotivo.motivo_anulacion || 'Sin motivo especificado'}"
+                </p>
               </div>
             </div>
+            <button
+              onClick={() => setVentaVerMotivo(null)}
+              className="w-full py-2 bg-[#212121] text-white font-bold rounded-xl text-xs hover:bg-black transition"
+            >
+              Cerrar
+            </button>
           </div>
         </div>
       )}
 
       {/* ============================================================ */}
-      {/* MODAL COMPROBANTE DE CIERRE DE CAJA */}
+      {/* MODAL: COMPROBANTE DE CIERRE DE CAJA */}
       {/* ============================================================ */}
       {comprobanteCierreData && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border-4 border-[#212121]">
-            <div className="text-center space-y-1 font-mono text-xs border-b pb-4">
-              <h2 className="text-2xl font-black text-[#212121]">DYM’S</h2>
-              <p className="text-[10px] uppercase font-bold text-[#E35336]">Comprobante de Cierre Diario de Caja</p>
-              <p className="text-[10px] text-[#212121]/70">Fecha: {new Date(comprobanteCierreData.hora_cierre).toLocaleString()}</p>
-              <p className="text-[10px] text-[#212121]/70">Responsable: {comprobanteCierreData.responsable}</p>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div id="ticket-imprimible" className="font-mono text-xs text-[#212121] space-y-2 border-b-2 border-dashed pb-3">
+              <div className="text-center space-y-0.5">
+                <h3 className="text-lg font-black text-black">DYM’S</h3>
+                <p className="text-[10px] font-bold text-black uppercase">Comprobante de Cierre de Caja</p>
+                <p className="text-[9px] text-black">Fecha: {new Date(comprobanteCierreData.hora_cierre).toLocaleString()}</p>
+                <p className="text-[9px] text-black">Responsable: {comprobanteCierreData.responsable}</p>
+              </div>
+
+              <div className="border-t border-b border-black py-2 my-2 space-y-1 text-[11px]">
+                <div className="flex justify-between">
+                  <span>Monto Inicial Apertura:</span>
+                  <span>{formatoMoneda(comprobanteCierreData.monto_inicial)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Ventas en Efectivo:</span>
+                  <span className="font-bold">+{formatoMoneda(comprobanteCierreData.ventas_efectivo)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Ventas en Transferencia:</span>
+                  <span>+{formatoMoneda(comprobanteCierreData.ventas_transferencia)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Gastos Pagados:</span>
+                  <span className="font-bold">-{formatoMoneda(comprobanteCierreData.total_gastos)}</span>
+                </div>
+                <div className="flex justify-between border-t border-black pt-1 font-bold">
+                  <span>Efectivo Esperado:</span>
+                  <span>{formatoMoneda(comprobanteCierreData.dinero_esperado)}</span>
+                </div>
+                <div className="flex justify-between font-black text-sm">
+                  <span>Efectivo Real Contado:</span>
+                  <span>{formatoMoneda(comprobanteCierreData.dinero_real)}</span>
+                </div>
+                <div className="flex justify-between text-xs font-black">
+                  <span>Diferencia:</span>
+                  <span className={comprobanteCierreData.diferencia < 0 ? 'text-[#D32F2F]' : ''}>
+                    {formatoMoneda(comprobanteCierreData.diferencia)}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-[10px] italic text-center">"{comprobanteCierreData.observaciones}"</p>
             </div>
 
-            <div className="py-4 font-mono text-xs space-y-2 border-b">
-              <div className="flex justify-between">
-                <span>Base Inicial:</span>
-                <span>{formatoMoneda(comprobanteCierreData.monto_inicial)}</span>
-              </div>
-              <div className="flex justify-between text-emerald-800">
-                <span>+ Ventas Efectivo:</span>
-                <span>+{formatoMoneda(comprobanteCierreData.ventas_efectivo)}</span>
-              </div>
-              <div className="flex justify-between text-rose-800">
-                <span>- Total Gastos:</span>
-                <span>-{formatoMoneda(comprobanteCierreData.total_gastos)}</span>
-              </div>
-              <div className="flex justify-between font-black pt-1 border-t">
-                <span>Dinero Esperado:</span>
-                <span>{formatoMoneda(comprobanteCierreData.dinero_esperado)}</span>
-              </div>
-              <div className="flex justify-between font-black text-sm text-[#212121]">
-                <span>Dinero Real Contado:</span>
-                <span className="text-[#E35336]">{formatoMoneda(comprobanteCierreData.dinero_real)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-xs pt-1 border-t">
-                <span>Diferencia:</span>
-                <span className={comprobanteCierreData.diferencia === 0 ? 'text-emerald-700' : 'text-[#D32F2F]'}>
-                  {formatoMoneda(comprobanteCierreData.diferencia)}
-                </span>
-              </div>
-            </div>
-
-            <p className="text-[10px] text-[#212121]/60 py-2 italic font-mono">
-              Obs: {comprobanteCierreData.observaciones}
-            </p>
-
-            <div className="space-y-2 pt-3 border-t">
+            <div className="space-y-2 no-print">
               <button
+                type="button"
                 onClick={() => window.print()}
-                className="w-full py-2.5 bg-[#212121] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow"
+                className="w-full py-2 bg-[#212121] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5"
               >
-                <Printer className="w-4 h-4" /> Imprimir Comprobante Cierre
+                <Printer className="w-4 h-4" /> Imprimir Comprobante
               </button>
               <button
                 onClick={() => setComprobanteCierreData(null)}
-                className="w-full py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-600"
+                className="w-full py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-700"
               >
                 Cerrar
               </button>
@@ -3225,72 +2907,431 @@ ${detalle}
       )}
 
       {/* ============================================================ */}
-      {/* MODAL REGISTRAR GASTO */}
+      {/* 19. MODAL: CIERRE DE CAJA DIARIO */}
+      {/* ============================================================ */}
+      {modalCierreCaja && cajaActual && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="text-lg font-black text-[#212121]">Arqueo & Cierre de Caja</h3>
+              <button onClick={() => setModalCierreCaja(false)} className="text-slate-400 hover:text-black">✕</button>
+            </div>
+
+            {/* Aviso si dinero es negativo */}
+            {efectivoFisicoEnCaja < 0 && (
+              <div className="p-3 bg-red-100 border border-red-400 text-red-800 text-xs font-bold rounded-xl">
+                ⚠️ ALERTA: La caja tiene saldo en efectivo negativo ({formatoMoneda(efectivoFisicoEnCaja)}). El cierre está bloqueado hasta corregir egresos.
+              </div>
+            )}
+
+            <div className="bg-slate-50 p-3 rounded-2xl space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span>Base Apertura:</span>
+                <span className="font-bold">{formatoMoneda(cajaActual.monto_inicial)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Ventas Efectivo Hoy:</span>
+                <span className="font-bold text-emerald-700">+{formatoMoneda(totalVentasEfectivoHoy)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Gastos Hoy:</span>
+                <span className="font-bold text-rose-700">-{formatoMoneda(totalGastosHoy)}</span>
+              </div>
+              <div className="flex justify-between text-sm font-black border-t pt-1 text-[#212121]">
+                <span>Efectivo Físico Esperado:</span>
+                <span className="text-[#E35336]">{formatoMoneda(efectivoFisicoEnCaja)}</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-black text-[#212121] uppercase mb-1">
+                Dinero Real Contado en Efectivo:
+              </label>
+              <input
+                type="number"
+                required
+                value={dineroRealContado}
+                onChange={(e) => setDineroRealContado(e.target.value)}
+                className="w-full px-3 py-2 text-sm font-bold border-2 border-slate-300 rounded-xl focus:border-[#E35336] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-black text-[#212121] uppercase mb-1">
+                Observaciones de Cierre:
+              </label>
+              <input
+                type="text"
+                placeholder="Novedades o justificación..."
+                value={obsCierre}
+                onChange={(e) => setObsCierre(e.target.value)}
+                className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:border-[#E35336] outline-none"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setModalCierreCaja(false)}
+                className="flex-1 py-2.5 border-2 border-slate-300 rounded-xl text-xs font-bold hover:bg-slate-50 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={procesandoCaja || efectivoFisicoEnCaja < 0}
+                onClick={handleConfirmarCierreCaja}
+                className="flex-1 py-2.5 bg-[#D32F2F] hover:bg-[#b71c1c] text-white font-black rounded-xl text-xs shadow-md transition disabled:opacity-50"
+              >
+                {procesandoCaja ? 'Cerrando...' : 'Confirmar Cierre'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 14. MODAL: CREAR / EDITAR PRODUCTO (SOLO ADMIN) */}
+      {/* ============================================================ */}
+      {modalProd && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl my-8">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <h3 className="text-xl font-black text-[#212121]">
+                {editandoProdId ? 'Editar Producto' : 'Nuevo Producto en DYM’S'}
+              </h3>
+              <button onClick={() => setModalProd(false)} className="text-xl font-black text-slate-400 hover:text-black">✕</button>
+            </div>
+
+            <form onSubmit={handleGuardarProducto} className="space-y-3">
+              <div>
+                <label className="block text-xs font-black uppercase mb-1">Nombre del Producto:</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Purina Engorde 40kg"
+                  value={prodNombre}
+                  onChange={(e) => setProdNombre(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-black uppercase mb-1">Categoría:</label>
+                  <select
+                    value={prodCategoria}
+                    onChange={(e) => setProdCategoria(e.target.value)}
+                    className="w-full px-2 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl bg-white outline-none"
+                  >
+                    <option value="Purinas y Concentrados">Purinas y Concentrados</option>
+                    <option value="Pollos y Aves">Pollos y Aves</option>
+                    <option value="Huevos">Huevos</option>
+                    <option value="Otros">Otros</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-black uppercase mb-1">Unidad de Medida:</label>
+                  <select
+                    value={prodUnidad}
+                    onChange={(e) => setProdUnidad(e.target.value)}
+                    className="w-full px-2 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl bg-white outline-none"
+                  >
+                    <option value="bulto">Bulto (Saco)</option>
+                    <option value="unidad">Unidad / Pollo</option>
+                    <option value="panal">Panal (Huevos)</option>
+                    <option value="kilo">Kilo</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[11px] font-black uppercase mb-1">Costo Compra:</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="95000"
+                    value={prodCosto}
+                    onChange={(e) => setProdCosto(e.target.value)}
+                    className="w-full px-2 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-black uppercase mb-1 text-[#212121]">Precio Detal:</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="115000"
+                    value={prodPrecioDetal}
+                    onChange={(e) => setProdPrecioDetal(e.target.value)}
+                    className="w-full px-2 py-2 text-xs font-bold border-2 border-[#212121]/30 rounded-xl focus:border-[#E35336] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-black uppercase mb-1 text-[#E35336]">Mayorista:</label>
+                  <input
+                    type="number"
+                    placeholder="110000"
+                    value={prodPrecioMayor}
+                    onChange={(e) => setProdPrecioMayor(e.target.value)}
+                    className="w-full px-2 py-2 text-xs font-bold border-2 border-[#E35336]/30 rounded-xl focus:border-[#E35336] outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-black uppercase mb-1">Stock Actual:</label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    placeholder="20"
+                    value={prodStock}
+                    onChange={(e) => setProdStock(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-black uppercase mb-1">Stock Mínimo (Alerta):</label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    placeholder="5"
+                    value={prodStockMin}
+                    onChange={(e) => setProdStockMin(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* 14.4 PROTECCIÓN DOBLE CLIC EN CREAR PRODUCTO */}
+              <button
+                type="submit"
+                disabled={procesandoProducto}
+                className="w-full py-3 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-2xl text-xs shadow-md transition disabled:opacity-50 mt-2"
+              >
+                {procesandoProducto ? 'Guardando producto...' : (editandoProdId ? 'Actualizar Producto' : 'Guardar Producto')}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 16. MODAL: REGISTRAR / EDITAR CLIENTE */}
+      {/* ============================================================ */}
+      {modalCliente && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="text-lg font-black text-[#212121]">
+                {editandoClienteId ? 'Editar Cliente' : 'Registrar Nuevo Cliente'}
+              </h3>
+              <button onClick={() => setModalCliente(false)} className="text-slate-400 hover:text-black">✕</button>
+            </div>
+
+            <form onSubmit={handleGuardarCliente} className="space-y-3">
+              <div>
+                <label className="block text-xs font-black uppercase mb-1">Cédula o NIT:</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: 1098765432"
+                  value={cliDoc}
+                  onChange={(e) => setCliDoc(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-black uppercase mb-1">Nombre Completo:</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Carlos Gómez"
+                  value={cliNombre}
+                  onChange={(e) => setCliNombre(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-black uppercase mb-1">WhatsApp / Teléfono:</label>
+                <input
+                  type="text"
+                  placeholder="Ej: 3101234567"
+                  value={cliTel}
+                  onChange={(e) => setCliTel(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-black uppercase mb-1">Dirección / Finca:</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Vereda El Salitre"
+                  value={cliDir}
+                  onChange={(e) => setCliDir(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-medium border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={procesandoCliente}
+                className="w-full py-2.5 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-xl text-xs shadow-md transition disabled:opacity-50 mt-2"
+              >
+                {procesandoCliente ? 'Guardando...' : (editandoClienteId ? 'Guardar Cambios' : 'Registrar Cliente')}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 17. MODAL: REGISTRAR / EDITAR GASTO (ADMIN) */}
       {/* ============================================================ */}
       {modalGasto && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border-4 border-[#D32F2F]">
-            <div className="flex justify-between items-center mb-4 border-b pb-2">
-              <h3 className="text-xl font-black text-[#212121]">Registrar Gasto Operacional</h3>
-              <button onClick={() => setModalGasto(false)} className="text-2xl font-black text-[#212121]/40">✕</button>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="text-lg font-black text-[#D32F2F]">
+                {editandoGastoId ? 'Modificar Gasto' : 'Registrar Gasto Operacional'}
+              </h3>
+              <button onClick={() => setModalGasto(false)} className="text-slate-400 hover:text-black">✕</button>
             </div>
 
             <form onSubmit={handleGuardarGasto} className="space-y-3">
               <div>
-                <label className="block text-xs font-black text-[#212121] uppercase mb-1">Categoría:</label>
+                <label className="block text-xs font-black uppercase mb-1">Categoría del Gasto:</label>
                 <select
                   value={gastoCat}
                   onChange={(e) => setGastoCat(e.target.value)}
-                  className="w-full text-xs font-bold px-3 py-2 border-2 border-[#212121]/20 rounded-xl bg-white outline-none focus:border-[#D32F2F]"
+                  className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl bg-white outline-none"
                 >
-                  <option value="arriendo">Arriendo del Local / Granja</option>
-                  <option value="compra_mercancia">Compra de Mercancía / Bultos</option>
-                  <option value="servicios">Servicios Públicos (Luz, Agua)</option>
-                  <option value="nomina">Nómina / Jornales</option>
-                  <option value="otro">Otros Gastos Varios</option>
+                  <option value="arriendo">Arriendo de Local</option>
+                  <option value="compra_inventario">Compra de Bultos / Aves</option>
+                  <option value="servicios">Servicios Públicos (Luz/Agua)</option>
+                  <option value="nomina">Nómina / Pagos Empleados</option>
+                  <option value="transporte">Fletes / Transporte</option>
+                  <option value="otros">Otros Gastos</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-black text-[#212121] uppercase mb-1">Descripción:</label>
+                <label className="block text-xs font-black uppercase mb-1">Descripción:</label>
                 <input
                   type="text"
                   required
-                  placeholder="Ej: Pago de arriendo bodega central"
+                  placeholder="Ej: Pago de recibo de energía eléctrica"
                   value={gastoDesc}
                   onChange={(e) => setGastoDesc(e.target.value)}
-                  className="w-full text-xs font-bold px-3 py-2 border-2 border-[#212121]/20 rounded-xl outline-none focus:border-[#D32F2F]"
+                  className="w-full px-3 py-2 text-xs font-medium border-2 border-slate-200 rounded-xl focus:border-[#D32F2F] outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-black text-[#212121] uppercase mb-1">Monto ($):</label>
+                <label className="block text-xs font-black uppercase mb-1">Monto a Retirar de Caja:</label>
                 <input
                   type="number"
                   required
-                  placeholder="Ej: 350000"
+                  min="1"
+                  placeholder="50000"
                   value={gastoMonto}
                   onChange={(e) => setGastoMonto(e.target.value)}
-                  className="w-full text-xs font-black px-3 py-2 border-2 border-[#212121]/20 rounded-xl outline-none focus:border-[#D32F2F]"
+                  className="w-full px-3 py-2 text-sm font-bold border-2 border-slate-200 rounded-xl focus:border-[#D32F2F] outline-none"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Máximo disponible: {formatoMoneda(dineroTotalDisponibleEnCaja)}
+                </p>
               </div>
 
-              <div className="flex gap-2 pt-3 border-t">
-                <button
-                  type="button"
-                  onClick={() => setModalGasto(false)}
-                  className="flex-1 py-2.5 border-2 border-[#212121]/20 rounded-xl font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-[#D32F2F] hover:bg-[#b71c1c] text-white font-black rounded-xl text-xs shadow-md"
-                >
-                  Guardar Gasto
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={procesandoGasto}
+                className="w-full py-2.5 bg-[#D32F2F] hover:bg-[#b71c1c] text-white font-black rounded-xl text-xs shadow-md transition disabled:opacity-50 mt-2"
+              >
+                {procesandoGasto ? 'Guardando...' : (editandoGastoId ? 'Actualizar Gasto' : 'Registrar Salida de Dinero')}
+              </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 21.1 MODAL: ALERTAS DE STOCK (SIN BOTÓN REPONER PARA VENDEDOR) */}
+      {/* ============================================================ */}
+      {modalAlertasStock && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-center border-b pb-3">
+              <div className="flex items-center gap-2 text-[#D32F2F]">
+                <AlertTriangle className="w-5 h-5" />
+                <h3 className="font-black text-lg">Productos con Stock Crítico o Agotado</h3>
+              </div>
+              <button onClick={() => setModalAlertasStock(false)} className="text-slate-400 hover:text-black">✕</button>
+            </div>
+
+            <div className="overflow-y-auto space-y-2 flex-1 pr-1">
+              {productos.filter(p => p.stock <= p.stock_minimo).length === 0 ? (
+                <div className="text-center py-8 text-emerald-700 font-bold text-xs">
+                  ✅ Todos los productos cuentan con existencias por encima del mínimo requerido.
+                </div>
+              ) : (
+                productos
+                  .filter(p => p.stock <= p.stock_minimo)
+                  .map(p => (
+                    <div key={p.id} className="p-3 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-between text-xs">
+                      <div>
+                        <p className="font-black text-[#212121]">{p.nombre}</p>
+                        <p className="text-[11px] text-slate-500 font-semibold">{p.categoria}</p>
+                        <span className="text-[10px] text-rose-700 font-bold">
+                          Mínimo requerido: {p.stock_minimo} {p.unidad_medida}s
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="px-2.5 py-1 rounded-full text-xs font-black bg-rose-600 text-white">
+                          {p.stock} {p.unidad_medida}s
+                        </span>
+                        {/* 21.1 BOTÓN REPONER DISPONIBLE ÚNICAMENTE PARA ADMINISTRADOR */}
+                        {usuario.rol === 'admin' && (
+                          <button
+                            onClick={() => {
+                              setModalAlertasStock(false);
+                              setEditandoProdId(p.id);
+                              setProdNombre(p.nombre);
+                              setProdCategoria(p.categoria);
+                              setProdCosto(String(p.precio_compra));
+                              setProdPrecioDetal(String(p.precio_venta));
+                              setProdPrecioMayor(String(p.precio_mayorista));
+                              setProdStock(String(p.stock));
+                              setProdStockMin(String(p.stock_minimo));
+                              setProdIva(String(p.iva_porcentaje));
+                              setProdUnidad(p.unidad_medida);
+                              setModuloActivo('inventario');
+                              setModalProd(true);
+                            }}
+                            className="block mt-1 text-[10px] font-bold text-[#E35336] hover:underline"
+                          >
+                            Reponer stock →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            <button
+              onClick={() => setModalAlertasStock(false)}
+              className="w-full py-2.5 bg-[#212121] text-white font-bold rounded-xl text-xs hover:bg-black transition"
+            >
+              Cerrar
+            </button>
           </div>
         </div>
       )}
