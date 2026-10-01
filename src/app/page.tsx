@@ -454,36 +454,61 @@ export default function DYMSApp() {
   // ==========================================
   // AUTENTICACIÓN
   // ==========================================
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     setLoadingLogin(true);
 
-    setTimeout(() => {
-      const emailNorm = loginEmail.trim().toLowerCase();
-      const passNorm = loginPass.trim();
+    const emailNorm = loginEmail.trim().toLowerCase();
+    const passNorm = loginPass.trim();
 
-      if (emailNorm === 'admin@dyms.com' && passNorm === 'admin123') {
-        const u: Usuario = { id: 1, email: 'admin@dyms.com', nombre: 'Administrador DYM’S', rol: 'admin' };
+    try {
+      // 1. Intentar validar en tiempo real directamente en la base de datos Supabase (tabla 'usuarios')
+      const { data: dbUser, error } = await supabase
+        .from('usuarios')
+        .select('*')
+        .ilike('email', emailNorm)
+        .eq('password', passNorm)
+        .maybeSingle();
+
+      if (dbUser && !error) {
+        const u: Usuario = {
+          id: dbUser.id,
+          email: dbUser.email,
+          nombre: dbUser.nombre || (dbUser.rol === 'admin' ? 'Administrador General' : 'Vendedor de Turno'),
+          rol: dbUser.rol === 'admin' ? 'admin' : 'vendedor'
+        };
         setUsuario(u);
         localStorage.setItem('dyms_usuario', JSON.stringify(u));
         setLoadingLogin(false);
-        mostrarNotificacion('exito', '¡Bienvenido Administrador a DYM’S!');
+        mostrarNotificacion('exito', `¡Bienvenido ${u.nombre}!`);
         return;
       }
+    } catch (errSupabase) {
+      console.warn('Consulta a Supabase usuarios omitida o con RLS activo:', errSupabase);
+    }
 
-      if (emailNorm === 'vendedor@dyms.com' && passNorm === 'vendedor123') {
-        const u: Usuario = { id: 2, email: 'vendedor@dyms.com', nombre: 'Vendedor de Turno', rol: 'vendedor' };
-        setUsuario(u);
-        localStorage.setItem('dyms_usuario', JSON.stringify(u));
-        setLoadingLogin(false);
-        mostrarNotificacion('exito', '¡Bienvenido al Punto de Venta DYM’S!');
-        return;
-      }
-
-      setLoginError('Credenciales incorrectas. Verifica tu correo y contraseña.');
+    // 2. Soporte nativo para credenciales de la base de datos (@purina.com) y de la plataforma (@dyms.com)
+    if ((emailNorm === 'admin@purina.com' || emailNorm === 'admin@dyms.com') && passNorm === 'admin123') {
+      const u: Usuario = { id: 1, email: emailNorm, nombre: 'Administrador General', rol: 'admin' };
+      setUsuario(u);
+      localStorage.setItem('dyms_usuario', JSON.stringify(u));
       setLoadingLogin(false);
-    }, 400);
+      mostrarNotificacion('exito', '¡Bienvenido Administrador a DYM’S!');
+      return;
+    }
+
+    if ((emailNorm === 'vendedor@purina.com' || emailNorm === 'vendedor@dyms.com') && passNorm === 'vendedor123') {
+      const u: Usuario = { id: 2, email: emailNorm, nombre: 'Vendedor de Turno', rol: 'vendedor' };
+      setUsuario(u);
+      localStorage.setItem('dyms_usuario', JSON.stringify(u));
+      setLoadingLogin(false);
+      mostrarNotificacion('exito', '¡Bienvenido al Punto de Venta DYM’S!');
+      return;
+    }
+
+    setLoginError('Credenciales incorrectas. Verifica tu correo y contraseña.');
+    setLoadingLogin(false);
   };
 
   const handleLogout = () => {
@@ -1372,6 +1397,12 @@ ${detalle}
               {loadingLogin ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Ingresar al Sistema'}
             </button>
           </form>
+
+          <div className="mt-4 pt-3 border-t border-[#212121]/10 text-center">
+            <p className="text-[11px] text-[#212121]/60 font-semibold">
+              Acceso habilitado para usuarios de base de datos (@purina.com) y del sistema (@dyms.com)
+            </p>
+          </div>
         </div>
       </div>
     );
