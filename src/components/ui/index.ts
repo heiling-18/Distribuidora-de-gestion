@@ -11,3 +11,4 @@ export { ConfirmDialog } from './ConfirmDialog';
 export { PageHeader } from './PageHeader';
 export { Panel, Tabla, Th, Td, Fila } from './Table';
 export { SearchInput } from './SearchInput';
+export { Skeleton, CargandoModulo } from './Skeleton';

@@ -9,9 +9,9 @@ import { MobileNav } from '@/components/layout/MobileNav';
 import { CajaCerradaBanner } from '@/components/layout/CajaCerradaBanner';
 import { Toasts } from '@/components/layout/Toasts';
 import type { Modulo } from '@/lib/modulos';
-import type { Cliente, Gasto, ItemCarrito, NotificacionVisual, Producto, SesionCaja, Usuario, Venta } from '@/types';
+import type { CierreCaja, Cliente, Gasto, ItemCarrito, NotificacionVisual, Producto, SesionCaja, Usuario, Venta } from '@/types';
 import { formatoMoneda } from '@/lib/formato';
-import { ConfirmDialog } from '@/components/ui';
+import { CargandoModulo, ConfirmDialog } from '@/components/ui';
 import { ClientesView } from '@/features/clientes/ClientesView';
 import { ClienteFormModal } from '@/features/clientes/ClienteFormModal';
 import { GastosView } from '@/features/gastos/GastosView';
@@ -27,7 +27,7 @@ import { MotivoAnulacionModal } from '@/features/ventas/MotivoAnulacionModal';
 import { CajaView } from '@/features/caja/CajaView';
 import { CierreCajaModal } from '@/features/caja/CierreCajaModal';
 import { ComprobanteCierreModal } from '@/features/caja/ComprobanteCierreModal';
-import { TicketVentaModal } from '@/features/pos/TicketVentaModal';
+import { TicketVentaModal, type TicketVenta } from '@/features/pos/TicketVentaModal';
 import { ProductoFormModal } from '@/features/inventario/ProductoFormModal';
 
 const esVentaDeHoy = (fechaStr?: string) => {
@@ -73,7 +73,7 @@ export default function DYMSApp() {
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [cajaActual, setCajaActual] = useState<SesionCaja | null>(null);
-  const [historialCierres, setHistorialCierres] = useState<any[]>([]);
+  const [historialCierres, setHistorialCierres] = useState<CierreCaja[]>([]);
 
   // 3. Notificaciones Visuales Integradas (Cero alert popup)
   const [notificaciones, setNotificaciones] = useState<NotificacionVisual[]>([]);
@@ -106,7 +106,7 @@ export default function DYMSApp() {
   const [modalCierreCaja, setModalCierreCaja] = useState(false);
   const [dineroRealContado, setDineroRealContado] = useState('');
   const [obsCierre, setObsCierre] = useState('');
-  const [comprobanteCierreData, setComprobanteCierreData] = useState<any | null>(null);
+  const [comprobanteCierreData, setComprobanteCierreData] = useState<CierreCaja | null>(null);
 
   // 7. POS (Punto de Venta) y Paginación
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
@@ -117,7 +117,7 @@ export default function DYMSApp() {
   const [busquedaClientePOS, setBusquedaClientePOS] = useState('');
 
   // 8. Ticket de Venta
-  const [ticketVentaData, setTicketVentaData] = useState<any | null>(null);
+  const [ticketVentaData, setTicketVentaData] = useState<TicketVenta | null>(null);
 
   // 9. Inventario y Calculador Automático de Precios por Margen % e IVA
   const [modalProd, setModalProd] = useState(false);
@@ -218,6 +218,8 @@ export default function DYMSApp() {
     // 2. Teléfono Admin
     const telGuardado = localStorage.getItem('dyms_tel_admin');
     if (telGuardado) {
+      // Se lee después de montar: localStorage no existe en el servidor
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTelefonoAdmin(telGuardado);
     }
     return () => subscription.unsubscribe();
@@ -325,6 +327,8 @@ export default function DYMSApp() {
 
   // 3. Cargar Datos Globales solo con sesión iniciada (RLS bloquea a usuarios anónimos)
   useEffect(() => {
+    // Carga intencional al iniciar sesión (RLS no deja leer sin usuario)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (usuario) cargarDatosGenerales();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario?.email]);
@@ -458,8 +462,8 @@ export default function DYMSApp() {
       localStorage.setItem('dyms_caja_activa', JSON.stringify(sesionAbierta));
       setMontoAperturaInput('');
       mostrarNotificacion('exito', '¡Caja abierta exitosamente para la jornada!');
-    } catch (err: any) {
-      mostrarNotificacion('error', 'Error abriendo caja: ' + err.message);
+    } catch (err) {
+      mostrarNotificacion('error', 'Error abriendo caja: ' + (err as Error).message);
     } finally {
       setProcesandoCaja(false);
     }
@@ -698,8 +702,8 @@ export default function DYMSApp() {
       setClienteSeleccionado(null);
       setBusquedaClientePOS('');
       mostrarNotificacion('exito', '¡Venta registrada y descontada del inventario exitosamente!');
-    } catch (err: any) {
-      mostrarNotificacion('error', 'Error al procesar la venta: ' + err.message);
+    } catch (err) {
+      mostrarNotificacion('error', 'Error al procesar la venta: ' + (err as Error).message);
     } finally {
       setProcesandoVenta(false);
     }
@@ -752,8 +756,8 @@ export default function DYMSApp() {
       mostrarNotificacion('exito', `Venta #${ventaAAnular.id} anulada. Se devolvieron +${ventaAAnular.cantidad} unidades al inventario.`);
       setVentaAAnular(null);
       setMotivoAnulacionInput('');
-    } catch (err: any) {
-      mostrarNotificacion('error', 'Error anulando venta: ' + err.message);
+    } catch (err) {
+      mostrarNotificacion('error', 'Error anulando venta: ' + (err as Error).message);
     } finally {
       setProcesandoAnulacion(false);
     }
@@ -832,8 +836,8 @@ export default function DYMSApp() {
       setProdPrecioDetal('');
       setProdPrecioMayor('');
       setProdStock('');
-    } catch (err: any) {
-      mostrarNotificacion('error', 'Error al guardar producto: ' + err.message);
+    } catch (err) {
+      mostrarNotificacion('error', 'Error al guardar producto: ' + (err as Error).message);
     } finally {
       setProcesandoProducto(false);
     }
@@ -897,8 +901,8 @@ export default function DYMSApp() {
       setCliDir('');
       setEditandoClienteId(null);
       setModalCliente(false);
-    } catch (err: any) {
-      mostrarNotificacion('error', 'Error con cliente: ' + err.message);
+    } catch (err) {
+      mostrarNotificacion('error', 'Error con cliente: ' + (err as Error).message);
     } finally {
       setProcesandoCliente(false);
     }
@@ -970,8 +974,8 @@ export default function DYMSApp() {
       setGastoMonto('');
       setEditandoGastoId(null);
       setModalGasto(false);
-    } catch (err: any) {
-      mostrarNotificacion('error', 'Error al procesar el gasto: ' + err.message);
+    } catch (err) {
+      mostrarNotificacion('error', 'Error al procesar el gasto: ' + (err as Error).message);
     } finally {
       setProcesandoGasto(false);
     }
@@ -993,8 +997,8 @@ export default function DYMSApp() {
       setGastos(prev => prev.filter(g => g.id !== gastoAEliminar.id));
       mostrarNotificacion('exito', 'Gasto eliminado y restituido al saldo de caja.');
       setGastoAEliminar(null);
-    } catch (err: any) {
-      mostrarNotificacion('error', 'Error eliminando gasto: ' + err.message);
+    } catch (err) {
+      mostrarNotificacion('error', 'Error eliminando gasto: ' + (err as Error).message);
     }
   };
 
@@ -1089,9 +1093,9 @@ export default function DYMSApp() {
   // ==========================================
   // WHATSAPP GENERADORES DIRECTOS
   // ==========================================
-  const generarLinkWhatsAppCliente = (ticket: any) => {
+  const generarLinkWhatsAppCliente = (ticket: TicketVenta) => {
     if (!ticket) return '#';
-    const detalle = ticket.items.map((i: ItemCarrito) => 
+    const detalle = ticket.items.map((i) =>
       `• ${i.cantidad}x ${i.producto.nombre} (${i.tipo_precio}) = ${formatoMoneda(i.total)}`
     ).join('\n');
 
@@ -1119,9 +1123,9 @@ ${detalle}
     return num ? `https://wa.me/57${num}?text=${encodeURIComponent(texto)}` : `https://wa.me/?text=${encodeURIComponent(texto)}`;
   };
 
-  const generarLinkWhatsAppAdmin = (ticket: any) => {
+  const generarLinkWhatsAppAdmin = (ticket: TicketVenta) => {
     if (!ticket) return '#';
-    const detalle = ticket.items.map((i: ItemCarrito) => 
+    const detalle = ticket.items.map((i) =>
       `• ${i.cantidad}x ${i.producto.nombre} = ${formatoMoneda(i.total)}`
     ).join('\n');
 
@@ -1159,12 +1163,9 @@ ${detalle}
       telefono: '',
       esClienteRegistrado: v.cliente_nombre !== 'Cliente General',
       items: [{
-        producto: { nombre: v.nombre_producto, precio_venta: v.precio_unitario, precio_compra: v.costo_unitario, categoria: '' },
+        producto: { nombre: v.nombre_producto },
         cantidad: v.cantidad,
         tipo_precio: determinarTipoPrecioVenta(v),
-        precio_aplicado: v.precio_unitario,
-        subtotal: v.total_venta,
-        iva_monto: 0,
         total: v.total_venta
       }],
       subtotal: v.total_venta,
@@ -1262,6 +1263,10 @@ ${detalle}
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 pb-28 pt-6 sm:px-8 lg:pb-10 lg:pt-8">
+        {loading && productos.length === 0 && ventas.length === 0 ? (
+          <CargandoModulo />
+        ) : (
+        <>
         {moduloActivo === 'dashboard' && (
           <DashboardView
             nombreUsuario={usuario.nombre}
@@ -1279,6 +1284,7 @@ ${detalle}
             }}
             tipoPrecio={determinarTipoPrecioVenta}
             procesandoAnulacion={procesandoAnulacion}
+            actualizando={loading}
             onActualizar={cargarDatosGenerales}
             onNuevaVenta={() => setModuloActivo('pos')}
             onIrCaja={() => setModuloActivo('caja')}
@@ -1417,6 +1423,8 @@ ${detalle}
             onExportar={() => exportarVentasExcel(false)}
             onVerTicket={verTicketDeVenta}
           />
+        )}
+        </>
         )}
       </main>
       </div>
