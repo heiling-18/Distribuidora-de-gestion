@@ -1,22 +1,94 @@
 @import "tailwindcss";
 
-:root {
-  --background: #CBD5E1;
-  --foreground: #212121;
+/* ==========================================
+   TOKENS DE DISEÑO DYM'S
+   Uso en Tailwind: bg-noche, text-tinta, bg-rojo, font-display…
+   ========================================== */
+@theme inline {
+  --font-sans: var(--font-figtree), system-ui, sans-serif;
+  --font-display: var(--font-bricolage), var(--font-figtree), sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace; /* tickets impresos */
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@theme {
+  /* Superficies */
+  --color-noche: #17130F;        /* menú, login, superficies oscuras */
+  --color-carbon: #241E19;       /* paneles sobre noche */
+  --color-carbon-claro: #2A231D; /* hover sobre noche */
+  --color-papel: #F5F3EE;        /* fondo de la app */
+  --color-superficie: #FFFFFF;   /* tarjetas y tablas */
+  --color-hundido: #F7F5F1;      /* filas, bloques dentro de tarjetas */
+  --color-borde: #D9D3C8;        /* bordes de campos */
+  --color-linea: #EFEBE4;        /* separadores de tabla */
+  --color-neutro: #ECE8E0;       /* botón secundario */
+  --color-neutro-hover: #E6E1D7;
+
+  /* Texto */
+  --color-tinta: #1C1814;
+  --color-tinta-suave: #5B5249;
+  --color-tinta-tenue: #8A8074;
+  --color-crema: #F5F1E8;        /* texto sobre noche */
+  --color-crema-suave: #CFC6B6;
+
+  /* Acción (un solo acento) */
+  --color-rojo: #D23A1E;
+  --color-rojo-hover: #B8301A;
+  --color-rojo-oscuro: #A82B13;
+  --color-rojo-fondo: #FDF1EE;
+
+  /* Maíz: avisos y detalles */
+  --color-maiz: #F2B33D;
+  --color-maiz-oscuro: #E9A42B;
+
+  /* Estados */
+  --color-exito: #2F7D4F;
+  --color-exito-fondo: #E5F1E9;
+  --color-exito-texto: #1E5A35;
+  --color-aviso-fondo: #FCEFD3;
+  --color-aviso-texto: #6B4A0E;
+  --color-error-fondo: #FBE7E2;
+  --color-error-texto: #8A2412;
+  --color-mayor: #1F4E8C;        /* precio por mayor */
+  --color-mayor-fondo: #E8EEF6;
+
+  /* Radios */
+  --radius-control: 10px;
+  --radius-campo: 12px;
+  --radius-tarjeta: 18px;
+
+  /* Animaciones */
+  --animate-subir: subir 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  @keyframes subir {
+    from { opacity: 0; transform: translateY(22px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  --animate-flotar: flotar 7s ease-in-out infinite;
+
+  @keyframes flotar {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-18px) rotate(25deg); }
+  }
 }
 
 body {
-  background-color: #CBD5E1;
-  color: #212121;
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-papel);
+  color: var(--color-tinta);
+  font-family: var(--font-sans);
   overflow-x: hidden;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Reglas de Impresión Térmica y Tickets: UNA SOLA IMPRESIÓN, SIN DUPLICADOS, SIN ELEMENTOS EXTERNOS */

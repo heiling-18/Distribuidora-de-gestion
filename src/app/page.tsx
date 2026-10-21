@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { 
+import { CATEGORIAS_PRODUCTO, UNIDADES_MEDIDA, normalizarCategoria } from '@/lib/categorias';
+import { LoginScreen } from '@/features/auth/LoginScreen';
+import {
   Package, 
   ShoppingCart, 
   DollarSign, 
@@ -35,7 +37,6 @@ import {
   Loader2, 
   Info, 
   Eye,
-  Mail,
   Lock,
   Percent,
   Calculator,
@@ -346,7 +347,7 @@ export default function DYMSApp() {
       }
       setProductos((prods || []).map(p => ({
         ...p,
-        categoria: p.categoria || 'Purinas y Concentrados',
+        categoria: normalizarCategoria(p.categoria),
         precio_mayorista: p.precio_mayorista || p.precio_venta * 0.95,
         iva_porcentaje: p.iva_porcentaje || 0,
         unidad_medida: p.unidad_medida || 'bulto'
@@ -1287,80 +1288,19 @@ ${detalle}
   };
 
   // ==========================================
-  // PANTALLA DE LOGIN (SIN AUTOCOMPLETADO, PLACEHOLDERS NEUTROS)
+  // PANTALLA DE LOGIN (src/features/auth/LoginScreen.tsx)
   // ==========================================
   if (!usuario) {
     return (
-      <div className="min-h-screen bg-[#212121] flex flex-col justify-center items-center p-4 selection:bg-[#E35336] selection:text-white">
-        <div className="w-full max-w-md bg-[#FFF8DC] rounded-3xl shadow-2xl p-8 border-4 border-[#E35336]">
-          <div className="text-center mb-8">
-            <div className="inline-flex p-4 bg-[#E35336] text-white rounded-3xl mb-3 shadow-lg">
-              <Package className="w-10 h-10 stroke-[2.2]" />
-            </div>
-            <h1 className="text-3xl font-black text-[#212121] tracking-tight">DYM’S</h1>
-            <p className="text-xs font-bold text-[#E35336] uppercase tracking-wider mt-1">
-              Sistema de Gestión Integral de Producción & Ventas
-            </p>
-          </div>
-
-          {loginError && (
-            <div className="mb-5 p-3 rounded-2xl bg-[#D32F2F]/10 border-2 border-[#D32F2F] text-[#D32F2F] text-xs font-bold flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>{loginError}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleLogin} autoComplete="off" className="space-y-4">
-            <div>
-              <label className="block text-xs font-black text-[#212121] uppercase mb-1.5">Correo Electrónico:</label>
-              <div className="relative">
-                <Mail className="w-5 h-5 text-[#212121]/50 absolute left-3.5 top-3" />
-                <input
-                  type="email"
-                  required
-                  autoComplete="off"
-                  name="email_dyms_usuario"
-                  placeholder="ejemplo@correo.com"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  className="w-full pl-11 pr-4 py-2.5 bg-white border-2 border-[#212121]/20 rounded-2xl focus:border-[#E35336] focus:ring-2 focus:ring-[#E35336]/20 outline-none text-sm font-semibold text-[#212121]"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-black text-[#212121] uppercase mb-1.5">Contraseña:</label>
-              <div className="relative">
-                <Lock className="w-5 h-5 text-[#212121]/50 absolute left-3.5 top-3" />
-                <input
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  name="password_dyms_clave"
-                  placeholder="Ingresa tu contraseña"
-                  value={loginPass}
-                  onChange={(e) => setLoginPass(e.target.value)}
-                  className="w-full pl-11 pr-4 py-2.5 bg-white border-2 border-[#212121]/20 rounded-2xl focus:border-[#E35336] focus:ring-2 focus:ring-[#E35336]/20 outline-none text-sm font-semibold text-[#212121]"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loadingLogin}
-              className="w-full py-3.5 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-2xl text-sm shadow-lg hover:shadow-xl transition transform active:scale-98 mt-2 flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {loadingLogin ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Ingresar al Sistema'}
-            </button>
-          </form>
-
-          <div className="mt-4 pt-3 border-t border-[#212121]/10 text-center">
-            <p className="text-[11px] text-[#212121]/60 font-semibold">
-              Acceso habilitado para usuarios de base de datos (@purina.com) y del sistema (@dyms.com)
-            </p>
-          </div>
-        </div>
-      </div>
+      <LoginScreen
+        email={loginEmail}
+        password={loginPass}
+        error={loginError}
+        cargando={loadingLogin}
+        onEmailChange={setLoginEmail}
+        onPasswordChange={setLoginPass}
+        onSubmit={handleLogin}
+      />
     );
   }
 
@@ -1645,8 +1585,8 @@ ${detalle}
                   Total Bodega: {productos.reduce((acc, p) => acc + p.stock, 0)} unidades/bultos
                 </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {['Purinas y Concentrados', 'Pollos y Aves', 'Huevos'].map((cat) => {
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {CATEGORIAS_PRODUCTO.map((cat) => {
                   const prodsCat = productos.filter(p => p.categoria === cat);
                   const stockTotal = prodsCat.reduce((acc, p) => acc + p.stock, 0);
                   const valorCat = prodsCat.reduce((acc, p) => acc + (p.stock * p.precio_compra), 0);
@@ -1808,10 +1748,9 @@ ${detalle}
                     className="text-xs font-bold px-3 py-1.5 border-2 border-[#212121]/15 rounded-xl bg-white outline-none focus:border-[#E35336]"
                   >
                     <option value="Todas">Todas las Categorías</option>
-                    <option value="Purinas y Concentrados">Purinas y Concentrados</option>
-                    <option value="Pollos y Aves">Pollos y Aves</option>
-                    <option value="Huevos">Huevos</option>
-                    <option value="Otros">Otros</option>
+                    {CATEGORIAS_PRODUCTO.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -2319,10 +2258,9 @@ ${detalle}
                 className="text-xs font-bold px-3 py-2 border-2 border-[#212121]/15 rounded-xl bg-white outline-none focus:border-[#E35336]"
               >
                 <option value="Todas">Todas las Categorías</option>
-                <option value="Purinas y Concentrados">Purinas y Concentrados</option>
-                <option value="Pollos y Aves">Pollos y Aves</option>
-                <option value="Huevos">Huevos</option>
-                <option value="Otros">Otros</option>
+                {CATEGORIAS_PRODUCTO.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
               </select>
             </div>
 
@@ -3279,10 +3217,9 @@ ${detalle}
                     onChange={(e) => setProdCategoria(e.target.value)}
                     className="w-full px-2 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl bg-white outline-none"
                   >
-                    <option value="Purinas y Concentrados">Purinas y Concentrados</option>
-                    <option value="Pollos y Aves">Pollos y Aves</option>
-                    <option value="Huevos">Huevos</option>
-                    <option value="Otros">Otros</option>
+                    {CATEGORIAS_PRODUCTO.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -3292,10 +3229,9 @@ ${detalle}
                     onChange={(e) => setProdUnidad(e.target.value)}
                     className="w-full px-2 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl bg-white outline-none"
                   >
-                    <option value="bulto">Bulto (Saco)</option>
-                    <option value="unidad">Unidad / Pollo</option>
-                    <option value="panal">Panal (Huevos)</option>
-                    <option value="kilo">Kilo</option>
+                    {UNIDADES_MEDIDA.map((u) => (
+                      <option key={u.valor} value={u.valor}>{u.texto}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -3604,7 +3540,7 @@ ${detalle}
                   className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl bg-white outline-none"
                 >
                   <option value="arriendo">Arriendo de Local</option>
-                  <option value="compra_inventario">Compra de Bultos / Aves</option>
+                  <option value="compra_inventario">Compra de bultos</option>
                   <option value="servicios">Servicios Públicos (Luz/Agua)</option>
                   <option value="nomina">Nómina / Pagos Empleados</option>
                   <option value="transporte">Fletes / Transporte</option>

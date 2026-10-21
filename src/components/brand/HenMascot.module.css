@@ -1,0 +1,58 @@
+.gallina {
+  animation: balanceo 2.4s ease-in-out infinite;
+  transform-box: view-box;
+  transform-origin: 260px 370px;
+}
+
+.cabeza {
+  animation: picoteo 2.4s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+  transform-box: view-box;
+  transform-origin: 312px 208px;
+}
+
+.grano {
+  animation: caida 2.4s cubic-bezier(0.55, 0, 0.75, 0.35) infinite;
+  opacity: 0;
+}
+.g2 { animation-delay: 0.35s; }
+.g3 { animation-delay: 0.7s; }
+.g4 { animation-delay: 1.05s; }
+.g5 { animation-delay: 1.4s; }
+
+.bulto {
+  animation: vaiven 4.8s ease-in-out infinite;
+  transform-box: view-box;
+  transform-origin: 450px 375px;
+}
+
+@keyframes balanceo {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes picoteo {
+  0%, 52%, 100% { transform: rotate(0); }
+  62% { transform: rotate(34deg); }
+  70% { transform: rotate(4deg); }
+  78% { transform: rotate(30deg); }
+  88% { transform: rotate(0); }
+}
+
+@keyframes caida {
+  0% { transform: translateY(-220px); opacity: 0; }
+  15% { opacity: 1; }
+  70% { transform: translateY(0); opacity: 1; }
+  80% { transform: translateY(-10px); }
+  90% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0; }
+}
+
+@keyframes vaiven {
+  0%, 100% { transform: rotate(0); }
+  50% { transform: rotate(-2.5deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gallina, .cabeza, .grano, .bulto { animation: none; }
+  .grano { opacity: 1; }
+}
