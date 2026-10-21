@@ -9,6 +9,14 @@ import { MobileNav } from '@/components/layout/MobileNav';
 import { CajaCerradaBanner } from '@/components/layout/CajaCerradaBanner';
 import { Toasts } from '@/components/layout/Toasts';
 import type { Modulo } from '@/lib/modulos';
+import type { Cliente, Gasto, ItemCarrito, NotificacionVisual, Producto, SesionCaja, Usuario, Venta } from '@/types';
+import { formatoMoneda } from '@/lib/formato';
+import { ConfirmDialog } from '@/components/ui';
+import { ClientesView } from '@/features/clientes/ClientesView';
+import { ClienteFormModal } from '@/features/clientes/ClienteFormModal';
+import { GastosView } from '@/features/gastos/GastosView';
+import { GastoFormModal } from '@/features/gastos/GastoFormModal';
+import { ReportesView } from '@/features/reportes/ReportesView';
 import {
   ShoppingCart,
   AlertTriangle,
@@ -28,97 +36,6 @@ import {
   Percent,
   RotateCcw
 } from 'lucide-react';
-
-// ==========================================
-// MODELOS Y TIPOS DE DATOS DYM'S
-// ==========================================
-interface Usuario {
-  id: number;
-  email: string;
-  nombre: string;
-  rol: 'admin' | 'vendedor';
-}
-
-interface Producto {
-  id: number;
-  codigo?: string;
-  nombre: string;
-  categoria: string;
-  precio_compra: number;
-  precio_venta: number; // Precio Detal
-  precio_mayorista: number;
-  iva_porcentaje: number;
-  stock: number;
-  stock_minimo: number;
-  unidad_medida: string;
-}
-
-interface Cliente {
-  id: number;
-  documento: string;
-  nombre: string;
-  telefono: string;
-  direccion: string;
-}
-
-interface ItemCarrito {
-  producto: Producto;
-  cantidad: number;
-  tipo_precio: 'detal' | 'mayorista';
-  precio_aplicado: number;
-  subtotal: number;
-  iva_monto: number;
-  total: number;
-}
-
-interface Venta {
-  id: number;
-  producto_id?: number;
-  cliente_documento?: string;
-  cliente_nombre: string;
-  nombre_producto: string;
-  categoria_producto?: string;
-  cantidad: number;
-  tipo_precio?: string;
-  precio_unitario: number;
-  costo_unitario: number;
-  subtotal?: number;
-  iva_total?: number;
-  total_venta: number;
-  ganancia_bruta: number;
-  metodo_pago: string;
-  estado_pago?: string;
-  vendedor: string;
-  fecha: string;
-  estado?: 'completada' | 'anulada';
-  motivo_anulacion?: string;
-}
-
-interface Gasto {
-  id: number;
-  categoria: string;
-  descripcion: string;
-  monto: number;
-  fecha: string;
-}
-
-interface SesionCaja {
-  id: number;
-  fecha: string;
-  monto_inicial: number;
-  monto_cierre?: number;
-  dinero_esperado?: number;
-  diferencia?: number;
-  estado: 'abierta' | 'cerrada';
-  usuario_apertura?: string;
-  created_at?: string;
-}
-
-interface NotificacionVisual {
-  id: number;
-  tipo: 'exito' | 'error' | 'advertencia' | 'info';
-  mensaje: string;
-}
 
 const esVentaDeHoy = (fechaStr?: string) => {
   if (!fechaStr) return false;
@@ -279,7 +196,6 @@ export default function DYMSApp() {
   const [cliNombre, setCliNombre] = useState('');
   const [cliTel, setCliTel] = useState('');
   const [cliDir, setCliDir] = useState('');
-  const [busquedaCli, setBusquedaCli] = useState('');
 
   // 11. Gastos Formulario / Edición (Solo Admin)
   const [modalGasto, setModalGasto] = useState(false);
@@ -428,15 +344,6 @@ export default function DYMSApp() {
     if (usuario) cargarDatosGenerales();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario?.email]);
-
-  // Formato Moneda Colombiana
-  const formatoMoneda = (val: number) => {
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      maximumFractionDigits: 0
-    }).format(val || 0);
-  };
 
   // Helper para identificar si una venta fue Al Detal o Al por Mayor
   const determinarTipoPrecioVenta = (v: Venta): 'detal' | 'mayorista' => {
@@ -1271,6 +1178,32 @@ ${detalle}
 
     const numAdmin = telefonoAdmin.replace(/[^0-9]/g, '');
     return numAdmin ? `https://wa.me/57${numAdmin}?text=${encodeURIComponent(texto)}` : `https://wa.me/?text=${encodeURIComponent(texto)}`;
+  };
+
+  // Reconstruye el ticket de una venta guardada (Reportes)
+  const verTicketDeVenta = (v: Venta) => {
+    setTicketVentaData({
+      numero: v.id,
+      fecha: new Date(v.fecha).toLocaleString(),
+      cliente: v.cliente_nombre,
+      documento: v.cliente_documento || 'C.C.',
+      telefono: '',
+      esClienteRegistrado: v.cliente_nombre !== 'Cliente General',
+      items: [{
+        producto: { nombre: v.nombre_producto, precio_venta: v.precio_unitario, precio_compra: v.costo_unitario, categoria: '' },
+        cantidad: v.cantidad,
+        tipo_precio: determinarTipoPrecioVenta(v),
+        precio_aplicado: v.precio_unitario,
+        subtotal: v.total_venta,
+        iva_monto: 0,
+        total: v.total_venta
+      }],
+      subtotal: v.total_venta,
+      iva: 0,
+      total: v.total_venta,
+      metodo: v.metodo_pago,
+      vendedor: v.vendedor
+    });
   };
 
   // ==========================================
@@ -2376,286 +2309,57 @@ ${detalle}
           </div>
         )}
 
-        {/* ============================================================ */}
-        {/* 16. MÓDULO: CLIENTES (CONSULTAR, EDITAR Y GUARDAR) */}
-        {/* ============================================================ */}
         {moduloActivo === 'clientes' && (
-          <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
-              <div>
-                <h2 className="text-2xl font-black text-[#212121]">Directorio de Clientes</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">Administración, consulta y edición de datos de clientes</p>
-              </div>
-              <button
-                onClick={() => {
-                  setEditandoClienteId(null);
-                  setCliDoc('');
-                  setCliNombre('');
-                  setCliTel('');
-                  setCliDir('');
-                  setModalCliente(true);
-                }}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#E35336] hover:bg-[#d0462a] text-white font-black text-xs shadow-md transition"
-              >
-                <Plus className="w-4 h-4" />
-                Nuevo Cliente
-              </button>
-            </div>
-
-            <div className="relative max-w-md">
-              <Search className="w-4 h-4 text-[#212121]/50 absolute left-3 top-3" />
-              <input
-                type="text"
-                placeholder="Buscar por cédula o nombre..."
-                value={busquedaCli}
-                onChange={(e) => setBusquedaCli(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-xs font-medium border-2 border-[#212121]/15 rounded-xl focus:border-[#E35336] outline-none"
-              />
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-[#FFF8DC] text-[#212121] uppercase text-[11px] font-black border-b">
-                  <tr>
-                    <th className="py-3 px-3">Documento (C.C. / NIT)</th>
-                    <th className="py-3 px-3">Nombre Completo</th>
-                    <th className="py-3 px-3">WhatsApp / Teléfono</th>
-                    <th className="py-3 px-3">Dirección / Notas</th>
-                    <th className="py-3 px-3 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {clientes
-                    .filter(c => c.documento.includes(busquedaCli) || c.nombre.toLowerCase().includes(busquedaCli.toLowerCase()))
-                    .map((c) => (
-                      <tr key={c.id} className="hover:bg-[#FFF8DC]/20">
-                        <td className="py-3 px-3 font-bold text-[#212121]">{c.documento}</td>
-                        <td className="py-3 px-3 font-bold">{c.nombre}</td>
-                        <td className="py-3 px-3">
-                          {c.telefono ? (
-                            <a
-                              href={`https://wa.me/57${c.telefono.replace(/[^0-9]/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-emerald-700 font-bold hover:underline flex items-center gap-1"
-                            >
-                              <Send className="w-3 h-3" /> +57 {c.telefono}
-                            </a>
-                          ) : (
-                            <span className="text-slate-400">Sin teléfono</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-[#212121]/70">{c.direccion || '-'}</td>
-                        <td className="py-3 px-3 text-right">
-                          {usuario.rol === 'admin' && (
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => {
-                                  setEditandoClienteId(c.id);
-                                  setCliDoc(c.documento);
-                                  setCliNombre(c.nombre);
-                                  setCliTel(c.telefono || '');
-                                  setCliDir(c.direccion || '');
-                                  setModalCliente(true);
-                                }}
-                                className="px-2.5 py-1 bg-white border border-[#212121]/20 hover:border-[#E35336] hover:text-[#E35336] rounded-lg text-[11px] font-bold transition"
-                              >
-                                Editar
-                              </button>
-                              <button
-                                onClick={() => setClienteAEliminar(c)}
-                                className="p-1 text-slate-400 hover:text-[#D32F2F] hover:bg-rose-50 rounded-lg transition"
-                                title="Eliminar Cliente"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <ClientesView
+            clientes={clientes}
+            esAdmin={usuario.rol === 'admin'}
+            onNuevo={() => {
+              setEditandoClienteId(null);
+              setCliDoc('');
+              setCliNombre('');
+              setCliTel('');
+              setCliDir('');
+              setModalCliente(true);
+            }}
+            onEditar={(c) => {
+              setEditandoClienteId(c.id);
+              setCliDoc(c.documento);
+              setCliNombre(c.nombre);
+              setCliTel(c.telefono || '');
+              setCliDir(c.direccion || '');
+              setModalCliente(true);
+            }}
+            onEliminar={setClienteAEliminar}
+          />
         )}
 
-        {/* ============================================================ */}
-        {/* 17. MÓDULO: GASTOS OPERACIONALES (SOLO ADMIN PUEDE MODIFICAR/ELIMINAR) */}
-        {/* ============================================================ */}
         {moduloActivo === 'gastos' && usuario.rol === 'admin' && (
-          <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
-              <div>
-                <h2 className="text-2xl font-black text-[#212121]">Gastos Operacionales DYM’S</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">Registro de salidas de dinero: arriendo, compras y servicios</p>
-              </div>
-              <button
-                onClick={() => {
-                  setEditandoGastoId(null);
-                  setGastoDesc('');
-                  setGastoMonto('');
-                  setModalGasto(true);
-                }}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#D32F2F] hover:bg-[#b71c1c] text-white font-black text-xs shadow-md transition"
-              >
-                <Plus className="w-4 h-4" />
-                Registrar Gasto
-              </button>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-[#FFF8DC] text-[#212121] uppercase text-[11px] font-black border-b">
-                  <tr>
-                    <th className="py-3 px-3">Fecha</th>
-                    <th className="py-3 px-3">Categoría</th>
-                    <th className="py-3 px-3">Descripción</th>
-                    <th className="py-3 px-3">Monto Egresado</th>
-                    <th className="py-3 px-3 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {gastos.map((g) => (
-                    <tr key={g.id} className="hover:bg-rose-50/30">
-                      <td className="py-3 px-3">{new Date(g.fecha).toLocaleDateString()}</td>
-                      <td className="py-3 px-3">
-                        <span className="bg-rose-50 text-[#D32F2F] px-2 py-0.5 rounded-md font-bold uppercase text-[10px]">
-                          {g.categoria}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 font-bold text-[#212121]">{g.descripcion}</td>
-                      <td className="py-3 px-3 font-black text-[#D32F2F]">
-                        -{formatoMoneda(g.monto)}
-                      </td>
-                      <td className="py-3 px-3 text-right space-x-1">
-                        <button
-                          onClick={() => {
-                            setEditandoGastoId(g.id);
-                            setGastoCat(g.categoria);
-                            setGastoDesc(g.descripcion);
-                            setGastoMonto(String(g.monto));
-                            setModalGasto(true);
-                          }}
-                          className="px-2 py-1 bg-white border border-slate-300 hover:border-slate-500 rounded-lg text-[10px] font-bold text-slate-700"
-                        >
-                          Modificar
-                        </button>
-                        {/* 17. ELIMINAR GASTO CON DIÁLOGO IN-APP (SIN CONFIRM DE NAVEGADOR) */}
-                        <button
-                          onClick={() => handleIniciarEliminarGasto(g)}
-                          className="px-2 py-1 bg-rose-50 border border-rose-300 hover:bg-rose-100 text-[#D32F2F] rounded-lg text-[10px] font-bold"
-                        >
-                          Eliminar
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <GastosView
+            gastos={gastos}
+            onNuevo={() => {
+              setEditandoGastoId(null);
+              setGastoDesc('');
+              setGastoMonto('');
+              setModalGasto(true);
+            }}
+            onEditar={(g) => {
+              setEditandoGastoId(g.id);
+              setGastoCat(g.categoria);
+              setGastoDesc(g.descripcion);
+              setGastoMonto(String(g.monto));
+              setModalGasto(true);
+            }}
+            onEliminar={handleIniciarEliminarGasto}
+          />
         )}
 
-        {/* ============================================================ */}
-        {/* 18. MÓDULO: REPORTES (SELECCIONAR VENTA Y VER/REIMPRIMIR TICKET) */}
-        {/* ============================================================ */}
         {moduloActivo === 'reportes' && usuario.rol === 'admin' && (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-black text-[#212121]">Informes y Estadísticas del Negocio</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">Análisis de rentabilidad, reimpresión de comprobantes y exportaciones</p>
-              </div>
-              <button
-                onClick={() => exportarVentasExcel(false)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                Descargar Historial de Ventas (.CSV)
-              </button>
-            </div>
-
-            <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-4">
-              <h3 className="font-black text-lg text-[#212121] border-b pb-3">Últimas Ventas (Haz clic en una venta para ver o imprimir su ticket)</h3>
-              <div className="overflow-x-auto max-h-96">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-[#FFF8DC] uppercase font-black text-[10px] text-[#212121] sticky top-0 border-b">
-                    <tr>
-                      <th className="py-2.5 px-3">Fecha</th>
-                      <th className="py-2.5 px-3">Cliente</th>
-                      <th className="py-2.5 px-3">Producto</th>
-                      <th className="py-2.5 px-3">Cant</th>
-                      <th className="py-2.5 px-3">Total Venta</th>
-                      <th className="py-2.5 px-3">Ganancia</th>
-                      <th className="py-2.5 px-3">Pago</th>
-                      <th className="py-2.5 px-3">Vendedor</th>
-                      <th className="py-2.5 px-3 text-right">Tirilla / Ticket</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {ventas.slice(0, 50).map((v) => (
-                      <tr key={v.id} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3">{new Date(v.fecha).toLocaleDateString()}</td>
-                        <td className="py-2.5 px-3 font-bold">{v.cliente_nombre}</td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-[#212121]">{v.nombre_producto}</div>
-                          <div className="mt-0.5">
-                            {determinarTipoPrecioVenta(v) === 'mayorista' ? (
-                              <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-black bg-blue-100 text-blue-800">
-                                Al por Mayor
-                              </span>
-                            ) : (
-                              <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-black bg-orange-100 text-[#E35336]">
-                                Al Detal
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3 font-black">{v.cantidad}</td>
-                        <td className="py-2.5 px-3 font-black text-[#212121]">{formatoMoneda(v.total_venta)}</td>
-                        <td className="py-2.5 px-3 font-bold text-emerald-700">+{formatoMoneda(v.ganancia_bruta)}</td>
-                        <td className="py-2.5 px-3 capitalize">{v.metodo_pago}</td>
-                        <td className="py-2.5 px-3 text-[#212121]/60">{v.vendedor}</td>
-                        <td className="py-2.5 px-3 text-right">
-                          <button
-                            onClick={() => {
-                              const tipoPrecioRec = determinarTipoPrecioVenta(v);
-                              setTicketVentaData({
-                                numero: v.id,
-                                fecha: new Date(v.fecha).toLocaleString(),
-                                cliente: v.cliente_nombre,
-                                documento: v.cliente_documento || 'C.C.',
-                                telefono: '',
-                                esClienteRegistrado: v.cliente_nombre !== 'Cliente General',
-                                items: [{
-                                  producto: { nombre: v.nombre_producto, precio_venta: v.precio_unitario, precio_compra: v.costo_unitario, categoria: '' },
-                                  cantidad: v.cantidad,
-                                  tipo_precio: tipoPrecioRec,
-                                  precio_aplicado: v.precio_unitario,
-                                  subtotal: v.total_venta,
-                                  iva_monto: 0,
-                                  total: v.total_venta
-                                }],
-                                subtotal: v.total_venta,
-                                iva: 0,
-                                total: v.total_venta,
-                                metodo: v.metodo_pago,
-                                vendedor: v.vendedor
-                              });
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#212121] hover:bg-[#E35336] text-white rounded-lg text-[10px] font-bold transition"
-                          >
-                            <Receipt className="w-3 h-3" /> Ver Ticket
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <ReportesView
+            ventas={ventas}
+            tipoPrecio={determinarTipoPrecioVenta}
+            onExportar={() => exportarVentasExcel(false)}
+            onVerTicket={verTicketDeVenta}
+          />
         )}
       </main>
       </div>
@@ -2819,42 +2523,16 @@ ${detalle}
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL IN-APP: CONFIRMAR ELIMINACIÓN DE GASTO (SIN CONFIRM) */}
-      {/* ============================================================ */}
       {gastoAEliminar && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center gap-2 text-[#D32F2F]">
-              <AlertTriangle className="w-5 h-5" />
-              <h3 className="font-black text-base">Eliminar Gasto de Caja</h3>
-            </div>
-
-            <p className="text-xs text-slate-600">
-              ¿Deseas eliminar el registro del gasto <strong>"{gastoAEliminar.descripcion}"</strong> por un monto de <strong>{formatoMoneda(gastoAEliminar.monto)}</strong>?
-            </p>
-            <p className="text-[11px] text-slate-400 italic">
-              El valor se reintegrará al saldo disponible de la caja.
-            </p>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setGastoAEliminar(null)}
-                className="flex-1 py-2 border border-slate-300 rounded-xl text-xs font-bold hover:bg-slate-50 transition"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmarEliminarGasto}
-                className="flex-1 py-2 bg-[#D32F2F] hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow transition"
-              >
-                Sí, Eliminar
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          titulo="¿Eliminar este gasto?"
+          textoConfirmar="Eliminar gasto"
+          onConfirmar={handleConfirmarEliminarGasto}
+          onCancelar={() => setGastoAEliminar(null)}
+        >
+          <p>Se eliminará <strong>{gastoAEliminar.descripcion}</strong> por <strong className="tabular">{formatoMoneda(gastoAEliminar.monto)}</strong>.</p>
+          <p className="text-tinta-suave">El valor vuelve al dinero disponible en caja.</p>
+        </ConfirmDialog>
       )}
 
       {/* ============================================================ */}
@@ -3304,146 +2982,37 @@ ${detalle}
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* 16. MODAL: REGISTRAR / EDITAR CLIENTE */}
-      {/* ============================================================ */}
       {modalCliente && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="text-lg font-black text-[#212121]">
-                {editandoClienteId ? 'Editar Cliente' : 'Registrar Nuevo Cliente'}
-              </h3>
-              <button onClick={() => setModalCliente(false)} className="text-slate-400 hover:text-black">✕</button>
-            </div>
-
-            <form onSubmit={handleGuardarCliente} className="space-y-3">
-              <div>
-                <label className="block text-xs font-black uppercase mb-1">Cédula o NIT:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: 1098765432"
-                  value={cliDoc}
-                  onChange={(e) => setCliDoc(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black uppercase mb-1">Nombre Completo:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Carlos Gómez"
-                  value={cliNombre}
-                  onChange={(e) => setCliNombre(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black uppercase mb-1">WhatsApp / Teléfono:</label>
-                <input
-                  type="text"
-                  placeholder="Ej: 3101234567"
-                  value={cliTel}
-                  onChange={(e) => setCliTel(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black uppercase mb-1">Dirección / Finca:</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Vereda El Salitre"
-                  value={cliDir}
-                  onChange={(e) => setCliDir(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-medium border-2 border-slate-200 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={procesandoCliente}
-                className="w-full py-2.5 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-xl text-xs shadow-md transition disabled:opacity-50 mt-2"
-              >
-                {procesandoCliente ? 'Guardando...' : (editandoClienteId ? 'Guardar Cambios' : 'Registrar Cliente')}
-              </button>
-            </form>
-          </div>
-        </div>
+        <ClienteFormModal
+          editando={!!editandoClienteId}
+          documento={cliDoc}
+          nombre={cliNombre}
+          telefono={cliTel}
+          direccion={cliDir}
+          procesando={procesandoCliente}
+          onDocumento={setCliDoc}
+          onNombre={setCliNombre}
+          onTelefono={setCliTel}
+          onDireccion={setCliDir}
+          onSubmit={handleGuardarCliente}
+          onCerrar={() => setModalCliente(false)}
+        />
       )}
 
-      {/* ============================================================ */}
-      {/* 17. MODAL: REGISTRAR / EDITAR GASTO (ADMIN) */}
-      {/* ============================================================ */}
       {modalGasto && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="text-lg font-black text-[#D32F2F]">
-                {editandoGastoId ? 'Modificar Gasto' : 'Registrar Gasto Operacional'}
-              </h3>
-              <button onClick={() => setModalGasto(false)} className="text-slate-400 hover:text-black">✕</button>
-            </div>
-
-            <form onSubmit={handleGuardarGasto} className="space-y-3">
-              <div>
-                <label className="block text-xs font-black uppercase mb-1">Categoría del Gasto:</label>
-                <select
-                  value={gastoCat}
-                  onChange={(e) => setGastoCat(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-bold border-2 border-slate-200 rounded-xl bg-white outline-none"
-                >
-                  <option value="arriendo">Arriendo de Local</option>
-                  <option value="compra_inventario">Compra de bultos</option>
-                  <option value="servicios">Servicios Públicos (Luz/Agua)</option>
-                  <option value="nomina">Nómina / Pagos Empleados</option>
-                  <option value="transporte">Fletes / Transporte</option>
-                  <option value="otros">Otros Gastos</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black uppercase mb-1">Descripción:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Pago de recibo de energía eléctrica"
-                  value={gastoDesc}
-                  onChange={(e) => setGastoDesc(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-medium border-2 border-slate-200 rounded-xl focus:border-[#D32F2F] outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black uppercase mb-1">Monto a Retirar de Caja:</label>
-                <input
-                  type="number"
-                  required
-                  min="1"
-                  placeholder="50000"
-                  value={gastoMonto}
-                  onChange={(e) => setGastoMonto(e.target.value)}
-                  className="w-full px-3 py-2 text-sm font-bold border-2 border-slate-200 rounded-xl focus:border-[#D32F2F] outline-none"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Máximo disponible: {formatoMoneda(dineroTotalDisponibleEnCaja)}
-                </p>
-              </div>
-
-              <button
-                type="submit"
-                disabled={procesandoGasto}
-                className="w-full py-2.5 bg-[#D32F2F] hover:bg-[#b71c1c] text-white font-black rounded-xl text-xs shadow-md transition disabled:opacity-50 mt-2"
-              >
-                {procesandoGasto ? 'Guardando...' : (editandoGastoId ? 'Actualizar Gasto' : 'Registrar Salida de Dinero')}
-              </button>
-            </form>
-          </div>
-        </div>
+        <GastoFormModal
+          editando={!!editandoGastoId}
+          categoria={gastoCat}
+          descripcion={gastoDesc}
+          monto={gastoMonto}
+          disponibleEnCaja={dineroTotalDisponibleEnCaja}
+          procesando={procesandoGasto}
+          onCategoria={setGastoCat}
+          onDescripcion={setGastoDesc}
+          onMonto={setGastoMonto}
+          onSubmit={handleGuardarGasto}
+          onCerrar={() => setModalGasto(false)}
+        />
       )}
 
       {/* ============================================================ */}
@@ -3523,46 +3092,19 @@ ${detalle}
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL IN-APP: CONFIRMAR ELIMINACIÓN DE CLIENTE (SIN CONFIRM) */}
-      {/* ============================================================ */}
       {clienteAEliminar && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3 text-[#D32F2F]">
-              <div className="p-3 bg-rose-100 rounded-2xl">
-                <Trash2 className="w-6 h-6 text-[#D32F2F]" />
-              </div>
-              <div>
-                <h3 className="text-base font-black text-[#212121]">¿Eliminar Cliente?</h3>
-                <p className="text-xs text-slate-500">Esta acción removerá el cliente del sistema</p>
-              </div>
-            </div>
-
-            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-700 space-y-1">
-              <p className="font-bold text-[#212121]">{clienteAEliminar.nombre}</p>
-              <p className="text-slate-500">C.C. / NIT: {clienteAEliminar.documento}</p>
-              {clienteAEliminar.telefono && <p className="text-slate-500">Tel: +57 {clienteAEliminar.telefono}</p>}
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setClienteAEliminar(null)}
-                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => handleConfirmarEliminarCliente(clienteAEliminar.id)}
-                className="py-2.5 px-4 bg-[#D32F2F] hover:bg-red-700 text-white font-black rounded-xl text-xs shadow-md transition"
-              >
-                Eliminar Cliente
-              </button>
-            </div>
+        <ConfirmDialog
+          titulo="¿Eliminar este cliente?"
+          textoConfirmar="Eliminar cliente"
+          onConfirmar={() => handleConfirmarEliminarCliente(clienteAEliminar.id)}
+          onCancelar={() => setClienteAEliminar(null)}
+        >
+          <div className="flex flex-col gap-0.5 rounded-campo bg-hundido px-4 py-3">
+            <strong className="font-semibold">{clienteAEliminar.nombre}</strong>
+            <span className="text-sm text-tinta-suave tabular">C.C. / NIT {clienteAEliminar.documento}{clienteAEliminar.telefono ? ` · ${clienteAEliminar.telefono}` : ''}</span>
           </div>
-        </div>
+          <p className="text-tinta-suave">Sus ventas anteriores no se borran.</p>
+        </ConfirmDialog>
       )}
 
       {/* ============================================================ */}
