@@ -146,6 +146,13 @@ body {
     color: black !important;
   }
 
+  /* Impresoras térmicas: texto y líneas en negro puro (los grises y cafés salen tenues) */
+  #ticket-imprimible * {
+    color: #000 !important;
+    border-color: #000 !important;
+    background: transparent !important;
+  }
+
   .no-print, .no-print * {
     display: none !important;
     visibility: hidden !important;
