@@ -83,6 +83,17 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Barras de gráficas que crecen desde abajo al aparecer */
+.barra-crecer {
+  transform-origin: bottom;
+  animation: crecer 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes crecer {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

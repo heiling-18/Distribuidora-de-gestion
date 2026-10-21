@@ -17,21 +17,19 @@ import { ClienteFormModal } from '@/features/clientes/ClienteFormModal';
 import { GastosView } from '@/features/gastos/GastosView';
 import { GastoFormModal } from '@/features/gastos/GastoFormModal';
 import { ReportesView } from '@/features/reportes/ReportesView';
+import { DashboardView } from '@/features/dashboard/DashboardView';
+import { InventarioView } from '@/features/inventario/InventarioView';
+import { AlertasStockModal } from '@/features/inventario/AlertasStockModal';
+import { POSView } from '@/features/pos/POSView';
 import {
-  ShoppingCart,
   AlertTriangle,
   Send,
-  Plus,
   Receipt,
   Wallet,
-  RefreshCw,
   FileSpreadsheet,
   Printer,
   Search,
-  Layers,
   AlertCircle,
-  Trash2,
-  Loader2,
   Lock,
   Percent,
   RotateCcw
@@ -120,15 +118,10 @@ export default function DYMSApp() {
   // 7. POS (Punto de Venta) y Paginación
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [metodoPagoPOS, setMetodoPagoPOS] = useState<'efectivo' | 'transferencia'>('efectivo');
-  const [busquedaProdPOS, setBusquedaProdPOS] = useState('');
-  const [filtroCatPOS, setFiltroCatPOS] = useState('Todas');
-  const [paginaPOS, setPaginaPOS] = useState(1);
-  const prodsPorPagina = 4;
 
   // Cliente Opcional en POS
   const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
   const [busquedaClientePOS, setBusquedaClientePOS] = useState('');
-  const [mostrarDropdownClientes, setMostrarDropdownClientes] = useState(false);
 
   // 8. Ticket de Venta
   const [ticketVentaData, setTicketVentaData] = useState<any | null>(null);
@@ -147,8 +140,6 @@ export default function DYMSApp() {
   const [prodStockMin, setProdStockMin] = useState('5');
   const [prodIva, setProdIva] = useState('0');
   const [prodUnidad, setProdUnidad] = useState('bulto');
-  const [busquedaInv, setBusquedaInv] = useState('');
-  const [filtroCatInv, setFiltroCatInv] = useState('Todas');
   const [modoCostoLote, setModoCostoLote] = useState(false);
   const [costoTotalLoteInput, setCostoTotalLoteInput] = useState('');
 
@@ -549,21 +540,6 @@ export default function DYMSApp() {
   // ==========================================
   // 5. VENTAS POS & CARRITO
   // ==========================================
-  const productosFiltradosPOS = useMemo(() => {
-    return productos.filter(p => {
-      const matchNombre = p.nombre.toLowerCase().includes(busquedaProdPOS.toLowerCase());
-      const matchCat = filtroCatPOS === 'Todas' || p.categoria === filtroCatPOS;
-      return matchNombre && matchCat;
-    });
-  }, [productos, busquedaProdPOS, filtroCatPOS]);
-
-  const totalPaginasPOS = Math.max(1, Math.ceil(productosFiltradosPOS.length / prodsPorPagina));
-
-  const productosPaginadosPOS = useMemo(() => {
-    const inicio = (paginaPOS - 1) * prodsPorPagina;
-    return productosFiltradosPOS.slice(inicio, inicio + prodsPorPagina);
-  }, [productosFiltradosPOS, paginaPOS]);
-
   // Venta al Detal y Mayorista (misma referencia compartida)
   const agregarAlCarrito = (prod: Producto, tipoPrecio: 'detal' | 'mayorista') => {
     if (!cajaActual || cajaActual.estado !== 'abierta') {
@@ -1206,6 +1182,37 @@ ${detalle}
     });
   };
 
+  // Formulario de producto: nuevo o edición (Inventario y alertas de stock)
+  const abrirNuevoProducto = () => {
+    setEditandoProdId(null);
+    setProdNombre('');
+    setProdCosto('');
+    setProdMargenDeseado('20');
+    setProdMargenMayorista('12');
+    setProdPrecioDetal('');
+    setProdPrecioMayor('');
+    setProdStock('');
+    setModalProd(true);
+  };
+
+  const abrirEdicionProducto = (p: Producto) => {
+    setEditandoProdId(p.id);
+    setProdNombre(p.nombre);
+    setProdCategoria(p.categoria);
+    setProdCosto(String(p.precio_compra));
+    const mD = p.precio_compra > 0 ? Math.round(((p.precio_venta - p.precio_compra) / p.precio_compra) * 100) : 20;
+    const mM = p.precio_compra > 0 ? Math.round(((p.precio_mayorista - p.precio_compra) / p.precio_compra) * 100) : 12;
+    setProdMargenDeseado(String(mD));
+    setProdMargenMayorista(String(mM));
+    setProdPrecioDetal(String(p.precio_venta));
+    setProdPrecioMayor(String(p.precio_mayorista));
+    setProdStock(String(p.stock));
+    setProdStockMin(String(p.stock_minimo));
+    setProdIva(String(p.iva_porcentaje));
+    setProdUnidad(p.unidad_medida);
+    setModalProd(true);
+  };
+
   // ==========================================
   // PANTALLA DE LOGIN (src/features/auth/LoginScreen.tsx)
   // ==========================================
@@ -1262,594 +1269,62 @@ ${detalle}
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 pb-28 pt-6 sm:px-8 lg:pb-10 lg:pt-8">
-        {/* ============================================================ */}
-        {/* 1. MÓDULO: DASHBOARD / INICIO */}
-        {/* ============================================================ */}
         {moduloActivo === 'dashboard' && (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-black text-[#212121]">Panel General de DYM’S</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">Resumen operativo de hoy y estado del negocio</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-white border border-[#212121]/20 text-[#212121] flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${cajaActual?.estado === 'abierta' ? 'bg-emerald-500' : 'bg-[#D32F2F]'}`}></span>
-                  Caja: {cajaActual?.estado === 'abierta' ? 'Abierta' : 'Cerrada'}
-                </span>
-                <button
-                  onClick={cargarDatosGenerales}
-                  className="p-2 rounded-xl bg-white border border-[#212121]/20 hover:bg-slate-100 text-[#212121] transition"
-                  title="Actualizar datos"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* TARJETAS KPI (SIN HOVER GENERAL, SÓLO ALERTAS DE STOCK TIENE HOVER) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Ventas Hoy */}
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-black text-[#212121]/60 uppercase">Ventas de Hoy</span>
-                  <div className="p-2 bg-[#E35336]/10 text-[#E35336] rounded-xl">
-                    <ShoppingCart className="w-5 h-5" />
-                  </div>
-                </div>
-                <p className="text-2xl font-black text-[#212121]">
-                  {formatoMoneda(totalVentasEfectivoHoy + totalVentasTransfHoy)}
-                </p>
-                <div className="flex items-center gap-2 mt-2 text-[11px] text-[#212121]/70">
-                  <span>💵 Efec: {formatoMoneda(totalVentasEfectivoHoy)}</span>
-                  <span>•</span>
-                  <span>📱 Transf: {formatoMoneda(totalVentasTransfHoy)}</span>
-                </div>
-              </div>
-
-              {/* Dinero en Caja */}
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-black text-[#212121]/60 uppercase">Dinero en Caja</span>
-                  <div className="p-2 bg-[#FFF8DC] text-[#E35336] rounded-xl border border-[#E35336]">
-                    <Wallet className="w-5 h-5" />
-                  </div>
-                </div>
-                <p className="text-2xl font-black text-[#E35336]">
-                  {formatoMoneda(dineroTotalDisponibleEnCaja)}
-                </p>
-                <div className="flex items-center justify-between mt-2 text-[10px] text-[#212121]/70 font-semibold border-t pt-1">
-                  <span>💵 Efectivo: {formatoMoneda(efectivoFisicoEnCaja)}</span>
-                  <span>📱 Transf: {formatoMoneda(totalVentasTransfHoy)}</span>
-                </div>
-              </div>
-
-              {/* Inversión en Bodega */}
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-black text-[#212121]/60 uppercase">Inversión en Bodega</span>
-                  <div className="p-2 bg-[#212121]/5 text-[#212121] rounded-xl">
-                    <Layers className="w-5 h-5" />
-                  </div>
-                </div>
-                <p className="text-2xl font-black text-[#212121]">
-                  {formatoMoneda(valorTotalInversion)}
-                </p>
-                <p className="text-[11px] text-[#212121]/60 mt-1 font-semibold">
-                  {productos.length} referencias registradas
-                </p>
-              </div>
-
-              {/* ALERTAS DE STOCK: ÚNICA TARJETA CON HOVER */}
-              <div
-                onClick={() => setModalAlertasStock(true)}
-                className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs hover:border-[#D32F2F] hover:shadow-lg cursor-pointer transition transform hover:-translate-y-0.5 group"
-                title="Haz clic para ver la lista de productos con stock bajo o agotado"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-black text-[#212121]/60 uppercase group-hover:text-[#D32F2F] transition">Alertas de Stock</span>
-                  <div className="p-2 bg-[#D32F2F]/10 text-[#D32F2F] rounded-xl group-hover:bg-[#D32F2F] group-hover:text-white transition">
-                    <AlertTriangle className="w-5 h-5" />
-                  </div>
-                </div>
-                <p className="text-2xl font-black text-[#D32F2F]">
-                  {productos.filter(p => p.stock <= p.stock_minimo).length}
-                </p>
-                <div className="flex items-center justify-between mt-1 text-[11px] font-bold text-[#D32F2F]">
-                  <span>En o por debajo del mínimo</span>
-                  <span className="text-[10px] bg-[#D32F2F]/10 px-2 py-0.5 rounded-full font-black group-hover:bg-[#D32F2F] group-hover:text-white transition">
-                    Ver productos →
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* INVENTARIO TOTAL */}
-            <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/10 shadow-xs space-y-4">
-              <div className="flex items-center justify-between border-b pb-3">
-                <div>
-                  <h3 className="font-black text-lg text-[#212121]">Inventario Total</h3>
-                  <p className="text-xs text-[#212121]/60 font-semibold">Distribución de existencias y valorización por categorías</p>
-                </div>
-                <span className="text-xs text-[#E35336] font-bold bg-[#FFF8DC] px-3 py-1 rounded-xl border border-[#E35336]">
-                  Total Bodega: {productos.reduce((acc, p) => acc + p.stock, 0)} unidades/bultos
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {CATEGORIAS_PRODUCTO.map((cat) => {
-                  const prodsCat = productos.filter(p => p.categoria === cat);
-                  const stockTotal = prodsCat.reduce((acc, p) => acc + p.stock, 0);
-                  const valorCat = prodsCat.reduce((acc, p) => acc + (p.stock * p.precio_compra), 0);
-                  return (
-                    <div key={cat} className="p-4 rounded-2xl bg-[#FFF8DC]/40 border border-[#212121]/10">
-                      <span className="text-[11px] font-black uppercase text-[#E35336] block mb-1">{cat}</span>
-                      <p className="text-2xl font-black text-[#212121]">{stockTotal}</p>
-                      <p className="text-xs text-[#212121]/60 font-semibold">unidades/bultos disponibles</p>
-                      <p className="text-xs font-bold text-[#212121] mt-2">Valoración: {formatoMoneda(valorCat)}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Tabla de Ventas de Hoy */}
-            <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/10 shadow-xs space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
-                <div>
-                  <h3 className="font-black text-lg text-[#212121]">Ventas Realizadas Hoy</h3>
-                  <p className="text-xs text-[#212121]/60 font-semibold">Resumen de operaciones facturadas durante la jornada</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => exportarVentasExcel(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition"
-                  >
-                    <FileSpreadsheet className="w-4 h-4" />
-                    <span>Descargar Resumen del Día (Excel)</span>
-                  </button>
-                  <button
-                    onClick={() => setModuloActivo('ventas')}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#212121] hover:bg-[#E35336] text-white font-bold text-xs transition"
-                  >
-                    <span>Ver Todas las Ventas →</span>
-                  </button>
-                </div>
-              </div>
-
-              {ventas.filter(v => esVentaDeHoy(v.fecha)).length === 0 ? (
-                <div className="text-center py-8 text-[#212121]/50 text-xs font-bold">
-                  Aún no se han registrado ventas el día de hoy.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-[#FFF8DC] uppercase font-black text-[10px] text-[#212121] border-b">
-                      <tr>
-                        <th className="py-2.5 px-3">Hora</th>
-                        <th className="py-2.5 px-3">Producto</th>
-                        <th className="py-2.5 px-3">Cant</th>
-                        <th className="py-2.5 px-3">Total</th>
-                        <th className="py-2.5 px-3">Método</th>
-                        <th className="py-2.5 px-3">Cliente</th>
-                        <th className="py-2.5 px-3">Estado</th>
-                        <th className="py-2.5 px-3 text-right">Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-medium">
-                      {ventas
-                        .filter(v => esVentaDeHoy(v.fecha))
-                        .slice(0, 10)
-                        .map((v) => {
-                          const esAnulada = v.estado === 'anulada';
-                          return (
-                            <tr key={v.id} className={esAnulada ? 'bg-red-50/50 line-through text-slate-400' : 'hover:bg-slate-50'}>
-                              <td className="py-2.5 px-3">{new Date(v.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                              <td className="py-2.5 px-3">
-                                <span className="font-bold text-[#212121]">{v.nombre_producto}</span>
-                                <span className="ml-1.5">
-                                  {determinarTipoPrecioVenta(v) === 'mayorista' ? (
-                                    <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-black bg-blue-100 text-blue-800">
-                                      Mayor
-                                    </span>
-                                  ) : (
-                                    <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-black bg-orange-100 text-[#E35336]">
-                                      Detal
-                                    </span>
-                                  )}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 font-black">{v.cantidad}</td>
-                              <td className="py-2.5 px-3 font-black text-[#212121]">{formatoMoneda(v.total_venta)}</td>
-                              <td className="py-2.5 px-3 capitalize">{v.metodo_pago}</td>
-                              <td className="py-2.5 px-3">{v.cliente_nombre}</td>
-                              <td className="py-2.5 px-3">
-                                {esAnulada ? (
-                                  <button
-                                    onClick={() => setVentaVerMotivo(v)}
-                                    className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-[#D32F2F] hover:underline"
-                                    title="Haz clic para ver el motivo real de anulación"
-                                  >
-                                    Anulada 🔍
-                                  </button>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
-                                    Completada
-                                  </span>
-                                )}
-                              </td>
-                              <td className="py-2.5 px-3 text-right">
-                                {!esAnulada && (
-                                  <button
-                                    disabled={procesandoAnulacion}
-                                    onClick={() => handleIniciarAnulacion(v)}
-                                    className="px-2.5 py-1 bg-white border border-[#D32F2F] text-[#D32F2F] hover:bg-[#D32F2F] hover:text-white rounded-lg text-[10px] font-bold transition shadow-2xs"
-                                  >
-                                    Anular
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
+          <DashboardView
+            nombreUsuario={usuario.nombre}
+            cajaAbierta={cajaAbierta}
+            ventas={ventas}
+            ventasHoy={ventas.filter(v => esVentaDeHoy(v.fecha))}
+            productos={productos}
+            totales={{
+              efectivoHoy: totalVentasEfectivoHoy,
+              transferenciaHoy: totalVentasTransfHoy,
+              dineroEnCaja: dineroTotalDisponibleEnCaja,
+              efectivoEnCaja: efectivoFisicoEnCaja,
+              gastosHoy: totalGastosHoy,
+              inversion: valorTotalInversion
+            }}
+            tipoPrecio={determinarTipoPrecioVenta}
+            procesandoAnulacion={procesandoAnulacion}
+            onActualizar={cargarDatosGenerales}
+            onNuevaVenta={() => setModuloActivo('pos')}
+            onIrCaja={() => setModuloActivo('caja')}
+            onVerVentas={() => setModuloActivo('ventas')}
+            onExportarHoy={() => exportarVentasExcel(true)}
+            onVerAlertas={() => setModalAlertasStock(true)}
+            onAnular={handleIniciarAnulacion}
+            onVerMotivo={setVentaVerMotivo}
+          />
         )}
 
-        {/* ============================================================ */}
-        {/* 5. MÓDULO: VENTAS POS CON PAGINACIÓN Y BÚSQUEDA INTEGRADA */}
-        {/* ============================================================ */}
         {moduloActivo === 'pos' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Columna Izquierda: Catálogo y Búsqueda */}
-            <div className="lg:col-span-7 space-y-4">
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h2 className="text-xl font-black text-[#212121]">Punto de Venta DYM’S</h2>
-                  <span className="text-xs font-bold text-slate-500">
-                    Página {paginaPOS} de {totalPaginasPOS} ({productosFiltradosPOS.length} productos)
-                  </span>
-                </div>
-
-                {/* Búsqueda de Productos y Filtro de Categoría Limpios */}
-                <div className="flex flex-wrap gap-2 pt-2 border-t">
-                  <div className="relative flex-1 min-w-[200px]">
-                    <Search className="w-4 h-4 text-[#212121]/50 absolute left-3 top-2.5" />
-                    <input
-                      type="text"
-                      placeholder="Buscar producto por nombre..."
-                      value={busquedaProdPOS}
-                      onChange={(e) => {
-                        setBusquedaProdPOS(e.target.value);
-                        setPaginaPOS(1);
-                      }}
-                      className="w-full pl-9 pr-3 py-1.5 text-xs font-medium border-2 border-[#212121]/15 rounded-xl focus:border-[#E35336] outline-none bg-slate-50/50"
-                    />
-                  </div>
-                  <select
-                    value={filtroCatPOS}
-                    onChange={(e) => {
-                      setFiltroCatPOS(e.target.value);
-                      setPaginaPOS(1);
-                    }}
-                    className="text-xs font-bold px-3 py-1.5 border-2 border-[#212121]/15 rounded-xl bg-white outline-none focus:border-[#E35336]"
-                  >
-                    <option value="Todas">Todas las Categorías</option>
-                    {CATEGORIAS_PRODUCTO.map((cat) => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Grid de Productos con Paginación */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-h-[380px]">
-                {productosPaginadosPOS.length === 0 ? (
-                  <div className="col-span-2 text-center py-12 text-[#212121]/40 text-xs font-bold">
-                    No se encontraron productos que coincidan con la búsqueda.
-                  </div>
-                ) : (
-                  productosPaginadosPOS.map((p) => {
-                    const agotado = p.stock <= 0;
-                    return (
-                      <div
-                        key={p.id}
-                        className={`bg-white p-4 rounded-3xl border-2 transition shadow-xs flex flex-col justify-between ${
-                          agotado ? 'border-[#D32F2F]/30 bg-red-50/20 opacity-70' : 'border-[#212121]/10'
-                        }`}
-                      >
-                        <div>
-                          <div className="flex justify-between items-start gap-1">
-                            <span className="text-[10px] font-black uppercase text-[#E35336] bg-[#FFF8DC] px-2 py-0.5 rounded-md">
-                              {p.categoria}
-                            </span>
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${agotado ? 'bg-rose-100 text-[#D32F2F]' : 'bg-emerald-100 text-emerald-800'}`}>
-                              {agotado ? 'Agotado' : `${p.stock} ${p.unidad_medida}s`}
-                            </span>
-                          </div>
-                          <h4 className="font-bold text-[#212121] text-sm mt-2">{p.nombre}</h4>
-                          <div className="mt-2 flex items-baseline justify-between">
-                            <div>
-                              <p className="text-[10px] text-[#212121]/50 font-bold uppercase">Precio Detal</p>
-                              <p className="text-base font-black text-[#212121]">{formatoMoneda(p.precio_venta)}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-[10px] text-[#E35336] font-bold uppercase">Mayorista</p>
-                              <p className="text-sm font-black text-[#E35336]">{formatoMoneda(p.precio_mayorista)}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t">
-                          <button
-                            disabled={agotado}
-                            onClick={() => agregarAlCarrito(p, 'detal')}
-                            className="py-1.5 px-2 bg-[#E35336] hover:bg-[#d0462a] text-white rounded-xl text-xs font-bold transition disabled:bg-slate-300"
-                          >
-                            + Detal
-                          </button>
-                          <button
-                            disabled={agotado}
-                            onClick={() => agregarAlCarrito(p, 'mayorista')}
-                            className="py-1.5 px-2 bg-[#212121] hover:bg-[#333] text-white rounded-xl text-xs font-bold transition disabled:bg-slate-300"
-                          >
-                            + Mayorista
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* PAGINACIÓN ESTILO NÚMEROS (AMAZON / GOOGLE) */}
-              {productosFiltradosPOS.length > 0 && (
-                <div className="bg-white py-3 px-4 rounded-2xl border-2 border-[#212121]/10 flex flex-wrap items-center justify-center gap-2 text-sm select-none">
-                  {paginaPOS > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => setPaginaPOS(prev => Math.max(1, prev - 1))}
-                      className="text-slate-700 hover:text-black font-bold px-3 py-1.5 rounded-lg hover:bg-slate-100 transition flex items-center gap-1"
-                    >
-                      ‹ Anterior
-                    </button>
-                  )}
-
-                  <div className="flex items-center gap-1.5">
-                    {Array.from({ length: totalPaginasPOS }, (_, i) => i + 1).map((num) => {
-                      const activo = paginaPOS === num;
-                      return (
-                        <button
-                          key={num}
-                          type="button"
-                          onClick={() => setPaginaPOS(num)}
-                          className={`min-w-[34px] h-[34px] px-2 rounded-lg font-black text-sm transition flex items-center justify-center ${
-                            activo
-                              ? 'border-2 border-[#1E88E5] text-[#1E88E5] bg-white shadow-xs'
-                              : 'text-slate-600 hover:text-black hover:bg-slate-100 font-semibold'
-                          }`}
-                        >
-                          {num}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {paginaPOS < totalPaginasPOS && (
-                    <button
-                      type="button"
-                      onClick={() => setPaginaPOS(prev => Math.min(totalPaginasPOS, prev + 1))}
-                      className="text-slate-700 hover:text-black font-bold px-3 py-1.5 rounded-lg hover:bg-slate-100 transition flex items-center gap-1"
-                    >
-                      Siguiente ›
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Columna Derecha: Ticket de Venta Actual y Cobro */}
-            <div className="lg:col-span-5">
-              <div className="bg-white p-5 rounded-3xl border-2 border-[#212121]/10 shadow-xs flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between border-b pb-3 mb-3">
-                    <div className="flex items-center gap-2">
-                      <Receipt className="w-5 h-5 text-[#E35336]" />
-                      <h3 className="font-black text-lg text-[#212121]">Ticket Actual</h3>
-                    </div>
-                    <span className="text-xs font-bold text-[#E35336]">{carrito.length} ítems</span>
-                  </div>
-
-                  {/* CLIENTE OPCIONAL */}
-                  <div className="mb-3 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
-                    <span className="block text-[10px] font-black uppercase text-slate-500 mb-1">
-                      Cliente (Opcional):
-                    </span>
-
-                    {clienteSeleccionado ? (
-                      <div className="flex items-center justify-between bg-emerald-50 border border-emerald-300 p-2 rounded-xl text-xs">
-                        <div className="truncate mr-2">
-                          <span className="font-black text-emerald-900">{clienteSeleccionado.nombre}</span>
-                          <span className="text-[10px] text-emerald-700 ml-1.5">(Doc: {clienteSeleccionado.documento})</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setClienteSeleccionado(null)}
-                          className="text-[10px] bg-white border border-red-300 text-red-600 px-2 py-0.5 rounded-md font-bold hover:bg-red-50"
-                        >
-                          Quitar
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="relative">
-                        <input
-                          type="text"
-                          placeholder="Buscar por C.C. o Nombre..."
-                          value={busquedaClientePOS}
-                          onFocus={() => setMostrarDropdownClientes(true)}
-                          onChange={(e) => {
-                            setBusquedaClientePOS(e.target.value);
-                            setMostrarDropdownClientes(true);
-                          }}
-                          className="w-full px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-xl bg-white outline-none focus:border-[#E35336]"
-                        />
-
-                        {mostrarDropdownClientes && busquedaClientePOS.trim().length > 0 && (
-                          <div className="absolute left-0 right-0 top-9 bg-white border-2 border-[#212121]/20 rounded-xl shadow-xl z-20 max-h-40 overflow-y-auto divide-y">
-                            {clientes
-                              .filter(c => c.documento.includes(busquedaClientePOS) || c.nombre.toLowerCase().includes(busquedaClientePOS.toLowerCase()))
-                              .map(c => (
-                                <div
-                                  key={c.id}
-                                  onClick={() => {
-                                    setClienteSeleccionado(c);
-                                    setBusquedaClientePOS('');
-                                    setMostrarDropdownClientes(false);
-                                  }}
-                                  className="p-2 text-xs hover:bg-[#FFF8DC] cursor-pointer flex justify-between items-center"
-                                >
-                                  <span className="font-bold text-[#212121]">{c.nombre}</span>
-                                  <span className="text-[10px] text-slate-500 font-mono">CC: {c.documento}</span>
-                                </div>
-                              ))}
-                            <div
-                              onClick={() => {
-                                setCliDoc(busquedaClientePOS.replace(/[^0-9]/g, ''));
-                                setModalCliente(true);
-                                setMostrarDropdownClientes(false);
-                              }}
-                              className="p-2 text-xs text-[#E35336] font-bold hover:bg-orange-50 cursor-pointer flex items-center gap-1"
-                            >
-                              <Plus className="w-3.5 h-3.5" /> Registrar nuevo cliente
-                            </div>
-                          </div>
-                        )}
-                        {!clienteSeleccionado && !busquedaClientePOS && (
-                          <p className="text-[10px] text-slate-400 mt-1 italic">
-                            Si no seleccionas cliente, la venta se registrará como Cliente General.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* LISTA DE ÍTEMS EN CARRITO */}
-                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                    {carrito.length === 0 ? (
-                      <div className="text-center py-10 text-[#212121]/40 text-xs font-bold">
-                        <ShoppingCart className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                        No has agregado ningún producto al ticket
-                      </div>
-                    ) : (
-                      carrito.map((item, idx) => (
-                        <div key={idx} className="bg-[#FFF8DC]/40 p-2.5 rounded-2xl border border-[#212121]/10 flex items-center justify-between text-xs gap-2">
-                          <div className="min-w-0 flex-1">
-                            <p className="font-bold text-[#212121] leading-tight truncate">{item.producto.nombre}</p>
-                            <span className="text-[10px] text-[#E35336] font-black uppercase">
-                              {item.tipo_precio} • {formatoMoneda(item.precio_aplicado)}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              onClick={() => modificarCantidadCarrito(idx, -1)}
-                              className="w-6 h-6 rounded-lg bg-slate-200 hover:bg-slate-300 text-[#212121] font-bold text-xs flex items-center justify-center"
-                            >
-                              -
-                            </button>
-                            <span className="font-black text-xs min-w-[28px] text-center px-1">
-                              {item.cantidad}
-                            </span>
-                            <button
-                              onClick={() => modificarCantidadCarrito(idx, 1)}
-                              className="w-6 h-6 rounded-lg bg-slate-200 hover:bg-slate-300 text-[#212121] font-bold text-xs flex items-center justify-center"
-                            >
-                              +
-                            </button>
-                            <span className="font-black text-xs text-[#212121] min-w-[65px] text-right">
-                              {formatoMoneda(item.total)}
-                            </span>
-                            <button
-                              onClick={() => eliminarDelCarrito(idx)}
-                              title="Eliminar producto del ticket"
-                              className="p-1 rounded-lg text-rose-500 hover:text-white hover:bg-rose-600 transition ml-1"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* Totales y Cobro */}
-                <div className="border-t pt-3 mt-3 space-y-2.5">
-                  <div className="space-y-1 text-xs text-[#212121]/70">
-                    <div className="flex justify-between">
-                      <span>Subtotal:</span>
-                      <span className="font-bold text-[#212121]">{formatoMoneda(totalesCarrito.subtotal)}</span>
-                    </div>
-                    <div className="flex justify-between text-base font-black text-[#212121] pt-1 border-t">
-                      <span>TOTAL A COBRAR:</span>
-                      <span className="text-xl text-[#E35336]">{formatoMoneda(totalesCarrito.total)}</span>
-                    </div>
-                  </div>
-
-                  {/* Método de Pago */}
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setMetodoPagoPOS('efectivo')}
-                      className={`py-2 rounded-xl text-xs font-black border-2 transition ${
-                        metodoPagoPOS === 'efectivo'
-                          ? 'bg-[#E35336] text-white border-[#E35336]'
-                          : 'border-[#212121]/20 text-[#212121]'
-                      }`}
-                    >
-                      💵 Efectivo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMetodoPagoPOS('transferencia')}
-                      className={`py-2 rounded-xl text-xs font-black border-2 transition ${
-                        metodoPagoPOS === 'transferencia'
-                          ? 'bg-[#E35336] text-white border-[#E35336]'
-                          : 'border-[#212121]/20 text-[#212121]'
-                      }`}
-                    >
-                      📱 Transferencia
-                    </button>
-                  </div>
-
-                  {metodoPagoPOS === 'transferencia' && (
-                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-semibold flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>💡 <strong>Recordatorio:</strong> No olvides tomarle foto o guardar el soporte de la transferencia bancaria.</span>
-                    </div>
-                  )}
-
-                  <button
-                    disabled={carrito.length === 0 || procesandoVenta}
-                    onClick={handleProcesarVenta}
-                    className="w-full py-3.5 bg-[#E35336] hover:bg-[#d0462a] text-white font-black rounded-2xl text-sm shadow-lg hover:shadow-xl transition disabled:bg-slate-300 flex items-center justify-center gap-2"
-                  >
-                    {procesandoVenta ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Procesando venta...</span>
-                      </>
-                    ) : (
-                      'Confirmar Venta & Emitir Ticket'
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <POSView
+            productos={productos}
+            carrito={carrito}
+            totales={totalesCarrito}
+            metodoPago={metodoPagoPOS}
+            onMetodoPago={setMetodoPagoPOS}
+            clientes={clientes}
+            clienteSeleccionado={clienteSeleccionado}
+            onSeleccionarCliente={setClienteSeleccionado}
+            busquedaCliente={busquedaClientePOS}
+            onBusquedaCliente={setBusquedaClientePOS}
+            onRegistrarCliente={(doc) => {
+              setEditandoClienteId(null);
+              setCliDoc(doc);
+              setCliNombre('');
+              setCliTel('');
+              setCliDir('');
+              setModalCliente(true);
+            }}
+            onAgregar={agregarAlCarrito}
+            onCantidad={modificarCantidadCarrito}
+            onQuitar={eliminarDelCarrito}
+            onCobrar={handleProcesarVenta}
+            procesando={procesandoVenta}
+            cajaAbierta={cajaAbierta}
+            onAbrirCaja={() => setModuloActivo('caja')}
+          />
         )}
 
         {/* ============================================================ */}
@@ -1990,161 +1465,15 @@ ${detalle}
           </div>
         )}
 
-        {/* ============================================================ */}
-        {/* 14 & 21. MÓDULO: INVENTARIO CON MARGEN ESTIMADO Y SIN BOTÓN REPONER PARA VENDEDOR */}
-        {/* ============================================================ */}
         {moduloActivo === 'inventario' && (
-          <div className="bg-white p-6 rounded-3xl border-2 border-[#212121]/15 shadow-sm space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
-              <div>
-                <h2 className="text-2xl font-black text-[#212121]">Control de Inventario y Productos</h2>
-                <p className="text-xs font-semibold text-[#212121]/60">Existencias, referencias, costos y precios al detal y mayorista</p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={exportarInventarioExcel}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border-2 border-emerald-600 text-emerald-700 font-bold text-xs hover:bg-emerald-50 transition"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  Exportar a Excel
-                </button>
-                {usuario.rol === 'admin' && (
-                  <button
-                    onClick={() => {
-                      setEditandoProdId(null);
-                      setProdNombre('');
-                      setProdCosto('');
-                      setProdMargenDeseado('20');
-                      setProdMargenMayorista('12');
-                      setProdPrecioDetal('');
-                      setProdPrecioMayor('');
-                      setProdStock('');
-                      setModalProd(true);
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#E35336] hover:bg-[#d0462a] text-white font-black text-xs shadow-md transition"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Registrar Producto
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative flex-1 min-w-[240px]">
-                <Search className="w-4 h-4 text-[#212121]/50 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  placeholder="Buscar producto por nombre..."
-                  value={busquedaInv}
-                  onChange={(e) => setBusquedaInv(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-xs font-medium border-2 border-[#212121]/15 rounded-xl focus:border-[#E35336] outline-none"
-                />
-              </div>
-              <select
-                value={filtroCatInv}
-                onChange={(e) => setFiltroCatInv(e.target.value)}
-                className="text-xs font-bold px-3 py-2 border-2 border-[#212121]/15 rounded-xl bg-white outline-none focus:border-[#E35336]"
-              >
-                <option value="Todas">Todas las Categorías</option>
-                {CATEGORIAS_PRODUCTO.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-[#FFF8DC] text-[#212121] uppercase text-[11px] font-black border-b-2 border-[#212121]/10">
-                  <tr>
-                    <th className="py-3 px-3">Producto / Referencia</th>
-                    <th className="py-3 px-3">Categoría</th>
-                    <th className="py-3 px-3">Costo Compra</th>
-                    <th className="py-3 px-3">Precio Detal</th>
-                    <th className="py-3 px-3">Precio Mayorista</th>
-                    <th className="py-3 px-3">Margen Estimado</th>
-                    <th className="py-3 px-3">Existencias</th>
-                    <th className="py-3 px-3">Valor en Bodega</th>
-                    {usuario.rol === 'admin' && <th className="py-3 px-3 text-right">Acciones</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {productos
-                    .filter(p => {
-                      const matchNombre = p.nombre.toLowerCase().includes(busquedaInv.toLowerCase());
-                      const matchCat = filtroCatInv === 'Todas' || p.categoria === filtroCatInv;
-                      return matchNombre && matchCat;
-                    })
-                    .map((p) => {
-                      const bajo = p.stock <= p.stock_minimo;
-                      const margen = p.precio_venta - p.precio_compra;
-                      const margenPct = p.precio_compra > 0 ? ((margen / p.precio_compra) * 100).toFixed(0) : '0';
-
-                      return (
-                        <tr key={p.id} className="hover:bg-[#FFF8DC]/20">
-                          <td className="py-3 px-3 font-bold text-[#212121]">{p.nombre}</td>
-                          <td className="py-3 px-3">
-                            <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-bold uppercase">{p.categoria}</span>
-                          </td>
-                          <td className="py-3 px-3">{formatoMoneda(p.precio_compra)}</td>
-                          <td className="py-3 px-3 font-bold text-[#212121]">{formatoMoneda(p.precio_venta)}</td>
-                          <td className="py-3 px-3 font-bold text-[#E35336]">{formatoMoneda(p.precio_mayorista)}</td>
-                          {/* Columna Margen Estimado Reincorporada */}
-                          <td className="py-3 px-3">
-                            <span className="font-bold text-emerald-800">+{formatoMoneda(margen)}</span>{' '}
-                            <span className="text-[10px] text-slate-500 font-semibold">({margenPct}%)</span>
-                          </td>
-                          <td className="py-3 px-3">
-                            <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
-                              bajo ? 'bg-rose-100 text-[#D32F2F]' : 'bg-emerald-100 text-emerald-800'
-                            }`}>
-                              {p.stock} {p.unidad_medida}s {bajo && '⚠️ Mínimo'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 font-black">{formatoMoneda(p.stock * p.precio_compra)}</td>
-                          {usuario.rol === 'admin' && (
-                            <td className="py-3 px-3 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  onClick={() => {
-                                    setEditandoProdId(p.id);
-                                    setProdNombre(p.nombre);
-                                    setProdCategoria(p.categoria);
-                                    setProdCosto(String(p.precio_compra));
-                                    const mD = p.precio_compra > 0 ? Math.round(((p.precio_venta - p.precio_compra) / p.precio_compra) * 100) : 20;
-                                    const mM = p.precio_compra > 0 ? Math.round(((p.precio_mayorista - p.precio_compra) / p.precio_compra) * 100) : 12;
-                                    setProdMargenDeseado(String(mD));
-                                    setProdMargenMayorista(String(mM));
-                                    setProdPrecioDetal(String(p.precio_venta));
-                                    setProdPrecioMayor(String(p.precio_mayorista));
-                                    setProdStock(String(p.stock));
-                                    setProdStockMin(String(p.stock_minimo));
-                                    setProdIva(String(p.iva_porcentaje));
-                                    setProdUnidad(p.unidad_medida);
-                                    setModalProd(true);
-                                  }}
-                                  className="px-2.5 py-1 bg-white border border-[#212121]/30 hover:border-[#E35336] hover:text-[#E35336] rounded-lg text-[11px] font-bold transition"
-                                >
-                                  Editar
-                                </button>
-                                <button
-                                  onClick={() => setProductoAEliminar(p)}
-                                  className="p-1 text-slate-400 hover:text-[#D32F2F] hover:bg-rose-50 rounded-lg transition"
-                                  title="Eliminar Producto del Inventario"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <InventarioView
+            productos={productos}
+            esAdmin={usuario.rol === 'admin'}
+            onNuevo={abrirNuevoProducto}
+            onEditar={abrirEdicionProducto}
+            onEliminar={setProductoAEliminar}
+            onExportar={exportarInventarioExcel}
+          />
         )}
 
         {/* ============================================================ */}
@@ -3015,81 +2344,17 @@ ${detalle}
         />
       )}
 
-      {/* ============================================================ */}
-      {/* 21.1 MODAL: ALERTAS DE STOCK (SIN BOTÓN REPONER PARA VENDEDOR) */}
-      {/* ============================================================ */}
       {modalAlertasStock && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex justify-between items-center border-b pb-3">
-              <div className="flex items-center gap-2 text-[#D32F2F]">
-                <AlertTriangle className="w-5 h-5" />
-                <h3 className="font-black text-lg">Productos con Stock Crítico o Agotado</h3>
-              </div>
-              <button onClick={() => setModalAlertasStock(false)} className="text-slate-400 hover:text-black">✕</button>
-            </div>
-
-            <div className="overflow-y-auto space-y-2 flex-1 pr-1">
-              {productos.filter(p => p.stock <= p.stock_minimo).length === 0 ? (
-                <div className="text-center py-8 text-emerald-700 font-bold text-xs">
-                  ✅ Todos los productos cuentan con existencias por encima del mínimo requerido.
-                </div>
-              ) : (
-                productos
-                  .filter(p => p.stock <= p.stock_minimo)
-                  .map(p => (
-                    <div key={p.id} className="p-3 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-between text-xs">
-                      <div>
-                        <p className="font-black text-[#212121]">{p.nombre}</p>
-                        <p className="text-[11px] text-slate-500 font-semibold">{p.categoria}</p>
-                        <span className="text-[10px] text-rose-700 font-bold">
-                          Mínimo requerido: {p.stock_minimo} {p.unidad_medida}s
-                        </span>
-                      </div>
-                      <div className="flex flex-col items-end gap-1.5">
-                        <span className="px-2.5 py-1 rounded-full text-xs font-black bg-rose-600 text-white shadow-xs">
-                          {p.stock} {p.unidad_medida}s
-                        </span>
-                        {usuario.rol === 'admin' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setModalAlertasStock(false);
-                              setEditandoProdId(p.id);
-                              setProdNombre(p.nombre);
-                              setProdCategoria(p.categoria);
-                              setProdCosto(String(p.precio_compra));
-                              setProdMargenDeseado('20');
-                              setProdMargenMayorista('12');
-                              setProdPrecioDetal(String(p.precio_venta));
-                              setProdPrecioMayor(String(p.precio_mayorista));
-                              setProdStock(String(p.stock));
-                              setProdStockMin(String(p.stock_minimo));
-                              setProdIva(String(p.iva_porcentaje));
-                              setProdUnidad(p.unidad_medida);
-                              setModuloActivo('inventario');
-                              setModalProd(true);
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#E35336] hover:bg-[#c9452b] text-white text-xs font-black shadow-md transition transform hover:scale-105 active:scale-95"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Reponer Stock</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))
-              )}
-            </div>
-
-            <button
-              onClick={() => setModalAlertasStock(false)}
-              className="w-full py-2.5 bg-[#212121] text-white font-bold rounded-xl text-xs hover:bg-black transition"
-            >
-              Cerrar
-            </button>
-          </div>
-        </div>
+        <AlertasStockModal
+          productos={productos}
+          esAdmin={usuario.rol === 'admin'}
+          onReponer={(p) => {
+            setModalAlertasStock(false);
+            setModuloActivo('inventario');
+            abrirEdicionProducto(p);
+          }}
+          onCerrar={() => setModalAlertasStock(false)}
+        />
       )}
 
       {clienteAEliminar && (
@@ -3107,47 +2372,21 @@ ${detalle}
         </ConfirmDialog>
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL IN-APP: CONFIRMAR ELIMINACIÓN DE PRODUCTO (SIN CONFIRM) */}
-      {/* ============================================================ */}
       {productoAEliminar && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3 text-[#D32F2F]">
-              <div className="p-3 bg-rose-100 rounded-2xl">
-                <Trash2 className="w-6 h-6 text-[#D32F2F]" />
-              </div>
-              <div>
-                <h3 className="text-base font-black text-[#212121]">¿Eliminar Producto?</h3>
-                <p className="text-xs text-slate-500">Se removerá del inventario y del Punto de Venta</p>
-              </div>
-            </div>
-
-            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-700 space-y-1">
-              <p className="font-black text-sm text-[#212121]">{productoAEliminar.nombre}</p>
-              <p className="text-slate-500">Categoría: {productoAEliminar.categoria}</p>
-              <p className="text-slate-500">Stock actual: {productoAEliminar.stock} {productoAEliminar.unidad_medida}s</p>
-              <p className="text-[#E35336] font-bold">Precio Detal: {formatoMoneda(productoAEliminar.precio_venta)}</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setProductoAEliminar(null)}
-                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => handleConfirmarEliminarProducto(productoAEliminar.id)}
-                className="py-2.5 px-4 bg-[#D32F2F] hover:bg-red-700 text-white font-black rounded-xl text-xs shadow-md transition"
-              >
-                Eliminar Producto
-              </button>
-            </div>
+        <ConfirmDialog
+          titulo="¿Eliminar este producto?"
+          textoConfirmar="Eliminar producto"
+          onConfirmar={() => handleConfirmarEliminarProducto(productoAEliminar.id)}
+          onCancelar={() => setProductoAEliminar(null)}
+        >
+          <div className="flex flex-col gap-0.5 rounded-campo bg-hundido px-4 py-3">
+            <strong className="font-semibold">{productoAEliminar.nombre}</strong>
+            <span className="text-sm text-tinta-suave tabular">
+              {productoAEliminar.stock} {productoAEliminar.unidad_medida}s en bodega · detal {formatoMoneda(productoAEliminar.precio_venta)}
+            </span>
           </div>
-        </div>
+          <p className="text-tinta-suave">Dejará de aparecer en el inventario y en el punto de venta. Las ventas anteriores no se borran.</p>
+        </ConfirmDialog>
       )}
     </div>
   );
