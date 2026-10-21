@@ -142,6 +142,22 @@ const esVentaDeHoy = (fechaStr?: string) => {
     f.getFullYear() === hoy.getFullYear();
 };
 
+// Perfil y rol del usuario autenticado (protegido por RLS: cada quien solo lee su fila)
+const cargarPerfilUsuario = async (email: string): Promise<Usuario | null> => {
+  const { data: dbUser, error } = await supabase
+    .from('usuarios')
+    .select('id, email, nombre, rol')
+    .ilike('email', email)
+    .maybeSingle();
+  if (error || !dbUser) return null;
+  return {
+    id: dbUser.id,
+    email: dbUser.email,
+    nombre: dbUser.nombre || (dbUser.rol === 'admin' ? 'Administrador General' : 'Vendedor de Turno'),
+    rol: dbUser.rol === 'admin' ? 'admin' : 'vendedor'
+  };
+};
+
 export default function DYMSApp() {
   // 1. Sesión y Navegación
   const [usuario, setUsuario] = useState<Usuario | null>(null);
@@ -294,44 +310,47 @@ export default function DYMSApp() {
   // INICIALIZACIÓN Y PERSISTENCIA (F5 / RECARGA)
   // ==========================================
   useEffect(() => {
-    // 1. Cargar Usuario
-    const sesion = localStorage.getItem('dyms_usuario');
-    if (sesion) {
-      try {
-        setUsuario(JSON.parse(sesion));
-      } catch {
-        localStorage.removeItem('dyms_usuario');
+    // 1. Restaurar sesión de Supabase Auth (el perfil y rol se leen de la tabla 'usuarios')
+    localStorage.removeItem('dyms_usuario');
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user.email) {
+        const u = await cargarPerfilUsuario(session.user.email);
+        if (u) {
+          setUsuario(u);
+        } else {
+          await supabase.auth.signOut();
+        }
       }
-    }
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        setUsuario(null);
+        setCarrito([]);
+      }
+    });
     // 2. Teléfono Admin
     const telGuardado = localStorage.getItem('dyms_tel_admin');
     if (telGuardado) {
       setTelefonoAdmin(telGuardado);
     }
-    // 3. Cargar Datos Globales
-    cargarDatosGenerales();
+    return () => subscription.unsubscribe();
   }, []);
 
   const cargarDatosGenerales = async () => {
     setLoading(true);
     try {
       // 1. Cargar Productos
-      const { data: prods } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
-      if (prods && prods.length > 0) {
-        setProductos(prods.map(p => ({
-          ...p,
-          categoria: p.categoria || 'Purinas y Concentrados',
-          precio_mayorista: p.precio_mayorista || p.precio_venta * 0.95,
-          iva_porcentaje: p.iva_porcentaje || 0,
-          unidad_medida: p.unidad_medida || 'bulto'
-        })));
-      } else {
-        setProductos([
-          { id: 4, nombre: 'Purina Engorde 40kg', categoria: 'Purinas y Concentrados', precio_compra: 95000, precio_venta: 115000, precio_mayorista: 110000, iva_porcentaje: 0, stock: 24, stock_minimo: 5, unidad_medida: 'bulto' },
-          { id: 2, nombre: 'Purina Ponedora 40kg', categoria: 'Purinas y Concentrados', precio_compra: 92000, precio_venta: 110000, precio_mayorista: 106000, iva_porcentaje: 0, stock: 18, stock_minimo: 5, unidad_medida: 'bulto' },
-          { id: 6, nombre: 'purina ponedora 50 kg', categoria: 'Purinas y Concentrados', precio_compra: 100000, precio_venta: 125000, precio_mayorista: 120000, iva_porcentaje: 0, stock: 10, stock_minimo: 3, unidad_medida: 'bulto' }
-        ]);
+      const { data: prods, error: errProds } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
+      if (errProds) {
+        mostrarNotificacion('error', 'No se pudieron cargar los productos: ' + errProds.message);
       }
+      setProductos((prods || []).map(p => ({
+        ...p,
+        categoria: p.categoria || 'Purinas y Concentrados',
+        precio_mayorista: p.precio_mayorista || p.precio_venta * 0.95,
+        iva_porcentaje: p.iva_porcentaje || 0,
+        unidad_medida: p.unidad_medida || 'bulto'
+      })));
 
       // 2. Cargar Ventas
       const { data: vts } = await supabase.from('ventas').select('*').order('fecha', { ascending: false });
@@ -364,20 +383,11 @@ export default function DYMSApp() {
       if (clis && clis.length > 0) {
         setClientes(clis);
         localStorage.setItem('dyms_clientes', JSON.stringify(clis));
-      } else if (clisLocal.length > 0) {
+      } else if (errClis && clisLocal.length > 0) {
+        // Solo lectura sin conexión: nunca se re-suben a la nube (evita duplicados)
         setClientes(clisLocal);
-        if (!errClis) {
-          try {
-            for (const c of clisLocal) {
-              await supabase.from('clientes').insert([{
-                documento: c.documento,
-                nombre: c.nombre,
-                telefono: c.telefono,
-                direccion: c.direccion
-              }]);
-            }
-          } catch {}
-        }
+      } else {
+        setClientes([]);
       }
 
       // 5. PERSISTENCIA DE CAJA: No cerrar en recarga (F5)
@@ -426,6 +436,12 @@ export default function DYMSApp() {
     }
   };
 
+  // 3. Cargar Datos Globales solo con sesión iniciada (RLS bloquea a usuarios anónimos)
+  useEffect(() => {
+    if (usuario) cargarDatosGenerales();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuario?.email]);
+
   // Formato Moneda Colombiana
   const formatoMoneda = (val: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -460,59 +476,33 @@ export default function DYMSApp() {
     setLoadingLogin(true);
 
     const emailNorm = loginEmail.trim().toLowerCase();
-    const passNorm = loginPass.trim();
 
     try {
-      // 1. Intentar validar en tiempo real directamente en la base de datos Supabase (tabla 'usuarios')
-      const { data: dbUser, error } = await supabase
-        .from('usuarios')
-        .select('*')
-        .ilike('email', emailNorm)
-        .eq('password', passNorm)
-        .maybeSingle();
-
-      if (dbUser && !error) {
-        const u: Usuario = {
-          id: dbUser.id,
-          email: dbUser.email,
-          nombre: dbUser.nombre || (dbUser.rol === 'admin' ? 'Administrador General' : 'Vendedor de Turno'),
-          rol: dbUser.rol === 'admin' ? 'admin' : 'vendedor'
-        };
-        setUsuario(u);
-        localStorage.setItem('dyms_usuario', JSON.stringify(u));
-        setLoadingLogin(false);
-        mostrarNotificacion('exito', `¡Bienvenido ${u.nombre}!`);
+      const { error } = await supabase.auth.signInWithPassword({ email: emailNorm, password: loginPass });
+      if (error) {
+        setLoginError('Credenciales incorrectas. Verifica tu correo y contraseña.');
         return;
       }
-    } catch (errSupabase) {
-      console.warn('Consulta a Supabase usuarios omitida o con RLS activo:', errSupabase);
-    }
 
-    // 2. Soporte nativo para credenciales de la base de datos (@purina.com) y de la plataforma (@dyms.com)
-    if ((emailNorm === 'admin@purina.com' || emailNorm === 'admin@dyms.com') && passNorm === 'admin123') {
-      const u: Usuario = { id: 1, email: emailNorm, nombre: 'Administrador General', rol: 'admin' };
+      const u = await cargarPerfilUsuario(emailNorm);
+      if (!u) {
+        await supabase.auth.signOut();
+        setLoginError('Tu cuenta no tiene un rol asignado en DYM’S. Contacta al administrador.');
+        return;
+      }
+
       setUsuario(u);
-      localStorage.setItem('dyms_usuario', JSON.stringify(u));
+      setLoginPass('');
+      mostrarNotificacion('exito', `¡Bienvenido ${u.nombre}!`);
+    } catch {
+      setLoginError('No se pudo conectar con el servidor. Intenta de nuevo.');
+    } finally {
       setLoadingLogin(false);
-      mostrarNotificacion('exito', '¡Bienvenido Administrador a DYM’S!');
-      return;
     }
-
-    if ((emailNorm === 'vendedor@purina.com' || emailNorm === 'vendedor@dyms.com') && passNorm === 'vendedor123') {
-      const u: Usuario = { id: 2, email: emailNorm, nombre: 'Vendedor de Turno', rol: 'vendedor' };
-      setUsuario(u);
-      localStorage.setItem('dyms_usuario', JSON.stringify(u));
-      setLoadingLogin(false);
-      mostrarNotificacion('exito', '¡Bienvenido al Punto de Venta DYM’S!');
-      return;
-    }
-
-    setLoginError('Credenciales incorrectas. Verifica tu correo y contraseña.');
-    setLoadingLogin(false);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('dyms_usuario');
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setUsuario(null);
     setCarrito([]);
     mostrarNotificacion('info', 'Has cerrado tu sesión.');
@@ -576,8 +566,9 @@ export default function DYMSApp() {
       };
 
       const { data, error } = await supabase.from('caja').insert([nuevaCajaDB]).select().single();
+      if (error || !data) throw new Error(error?.message || 'Sin respuesta del servidor');
       const sesionAbierta: SesionCaja = {
-        id: (!error && data) ? data.id : Date.now(),
+        id: data.id,
         fecha: hoy,
         monto_inicial: monto,
         estado: 'abierta',
@@ -636,11 +627,14 @@ export default function DYMSApp() {
       hora_cierre: new Date().toISOString()
     };
 
-    try {
-      await supabase.from('caja').update({ estado: 'cerrada', monto_cierre: real }).eq('id', cajaActual.id);
-      await supabase.from('cierres_caja').insert([datosCierre]);
-    } catch (e) {
-      console.warn('Cierre sincronizado localmente:', e);
+    const { error: errCierre } = await supabase.from('cierres_caja').insert([datosCierre]);
+    const { error: errCaja } = errCierre
+      ? { error: null }
+      : await supabase.from('caja').update({ estado: 'cerrada', monto_cierre: real }).eq('id', cajaActual.id);
+    if (errCierre || errCaja) {
+      mostrarNotificacion('error', 'No se pudo cerrar la caja: ' + (errCierre || errCaja)?.message);
+      setProcesandoCaja(false);
+      return;
     }
 
     setCajaActual(prev => prev ? { ...prev, estado: 'cerrada' } : null);
@@ -783,62 +777,40 @@ export default function DYMSApp() {
       stockADescontarPorProducto.set(i.producto.id, (stockADescontarPorProducto.get(i.producto.id) || 0) + i.cantidad);
     });
 
-    const nuevasVentas: Venta[] = [];
-
     try {
-      for (const item of carrito) {
-        const ventaRecordDB = {
-          producto_id: item.producto.id,
-          nombre_producto: item.producto.nombre,
-          cantidad: item.cantidad,
-          precio_unitario: item.precio_aplicado,
-          costo_unitario: item.producto.precio_compra,
-          total_venta: item.total,
-          ganancia_bruta: item.total - (item.cantidad * item.producto.precio_compra),
-          metodo_pago: metodoPagoPOS,
-          estado_pago: item.tipo_precio === 'mayorista' ? 'pagado (mayorista)' : 'pagado (detal)',
-          cliente_nombre: clienteNombreFinal,
-          vendedor: usuario?.nombre || 'Vendedor'
-        };
+      // Venta atómica en la base de datos: registra todas las líneas y descuenta stock
+      // en una sola transacción (función registrar_venta, ver supabase/migrations)
+      const { data: ventasDB, error } = await supabase.rpc('registrar_venta', {
+        p_items: carrito.map(i => ({ producto_id: i.producto.id, cantidad: i.cantidad, tipo_precio: i.tipo_precio })),
+        p_metodo_pago: metodoPagoPOS,
+        p_cliente_nombre: clienteNombreFinal
+      });
+      if (error) {
+        console.error('Error registrando venta en Supabase:', error);
+        throw new Error(error.message);
+      }
 
-        const { data, error } = await supabase.from('ventas').insert([ventaRecordDB]).select().single();
-        if (error) {
-          console.error('Error insertando venta en Supabase:', error);
-          throw new Error('Error al registrar venta en base de datos: ' + error.message);
-        }
-
-        nuevasVentas.push({
-          id: data ? data.id : Date.now() + Math.random(),
-          producto_id: item.producto.id,
+      const filasDB: Venta[] = ventasDB || [];
+      const nuevasVentas: Venta[] = filasDB.map((data, idx) => {
+        const item = carrito[idx];
+        return {
+          ...data,
           cliente_documento: clienteDocFinal,
-          cliente_nombre: clienteNombreFinal,
-          nombre_producto: item.producto.nombre,
-          cantidad: item.cantidad,
-          tipo_precio: item.tipo_precio,
-          precio_unitario: item.precio_aplicado,
-          costo_unitario: item.producto.precio_compra,
-          subtotal: item.subtotal,
-          iva_total: item.iva_monto,
-          total_venta: item.total,
-          ganancia_bruta: ventaRecordDB.ganancia_bruta,
-          metodo_pago: metodoPagoPOS,
-          estado_pago: item.tipo_precio === 'mayorista' ? 'pagado (mayorista)' : 'pagado (detal)',
-          vendedor: usuario?.nombre || 'Vendedor',
-          fecha: data ? data.fecha : new Date().toISOString(),
+          tipo_precio: item?.tipo_precio,
+          subtotal: item?.subtotal,
+          iva_total: item?.iva_monto,
           estado: 'completada'
-        });
-      }
+        };
+      });
 
-      for (const [prodId, cantADescontar] of stockADescontarPorProducto.entries()) {
-        const prodActual = productos.find(p => p.id === prodId);
-        if (prodActual) {
-          const nuevoStock = Math.max(0, prodActual.stock - cantADescontar);
-          await supabase.from('productos').update({ stock: nuevoStock }).eq('id', prodId);
-        }
-      }
+      // Stock real tras la venta (lo descontó la base de datos)
+      const idsVendidos = Array.from(stockADescontarPorProducto.keys());
+      const { data: stocks } = await supabase.from('productos').select('id, stock').in('id', idsVendidos);
 
       setVentas(prev => [...nuevasVentas, ...prev]);
       setProductos(prev => prev.map(p => {
+        const real = stocks?.find(s => s.id === p.id);
+        if (real) return { ...p, stock: real.stock };
         const descuento = stockADescontarPorProducto.get(p.id);
         return descuento ? { ...p, stock: Math.max(0, p.stock - descuento) } : p;
       }));
@@ -893,15 +865,18 @@ export default function DYMSApp() {
 
     setProcesandoAnulacion(true);
     try {
+      // Anulación atómica en la base de datos: marca la venta y devuelve el stock
+      const { error } = await supabase.rpc('anular_venta', { p_venta_id: ventaAAnular.id, p_motivo: motivoLimpio });
+      if (error) throw new Error(error.message);
+
       const prodRelacionado = productos.find(p => p.id === ventaAAnular.producto_id || p.nombre === ventaAAnular.nombre_producto);
       if (prodRelacionado) {
-        const nuevoStock = prodRelacionado.stock + ventaAAnular.cantidad;
-        await supabase.from('productos').update({ stock: nuevoStock }).eq('id', prodRelacionado.id);
+        const { data: real } = await supabase.from('productos').select('stock').eq('id', prodRelacionado.id).maybeSingle();
+        const nuevoStock = real ? real.stock : prodRelacionado.stock + ventaAAnular.cantidad;
         setProductos(prev => prev.map(p => p.id === prodRelacionado.id ? { ...p, stock: nuevoStock } : p));
       }
 
       const textoEstado = `anulada: ${motivoLimpio}`;
-      await supabase.from('ventas').update({ estado_pago: textoEstado }).eq('id', ventaAAnular.id);
 
       const ventaActualizada: Venta = {
         ...ventaAAnular,
@@ -976,16 +951,14 @@ export default function DYMSApp() {
 
     try {
       if (editandoProdId) {
-        await supabase.from('productos').update(prodData).eq('id', editandoProdId);
+        const { error } = await supabase.from('productos').update(prodData).eq('id', editandoProdId);
+        if (error) throw new Error(error.message);
         setProductos(prev => prev.map(p => p.id === editandoProdId ? { ...prodData, id: editandoProdId } : p));
         mostrarNotificacion('exito', '¡Producto actualizado correctamente!');
       } else {
         const { data, error } = await supabase.from('productos').insert([prodData]).select().single();
-        if (!error && data) {
-          setProductos(prev => [...prev, data]);
-        } else {
-          setProductos(prev => [...prev, { ...prodData, id: Date.now() }]);
-        }
+        if (error || !data) throw new Error(error?.message || 'Sin respuesta del servidor');
+        setProductos(prev => [...prev, data]);
         mostrarNotificacion('exito', '¡Nuevo producto registrado en DYM’S!');
       }
 
@@ -1004,13 +977,11 @@ export default function DYMSApp() {
   };
 
   const handleConfirmarEliminarProducto = async (id: number) => {
-    try {
-      const { error } = await supabase.from('productos').delete().eq('id', id);
-      if (error) {
-        console.warn('Error al eliminar producto en Supabase:', error);
-      }
-    } catch (e) {
-      console.error(e);
+    const { error } = await supabase.from('productos').delete().eq('id', id);
+    if (error) {
+      mostrarNotificacion('error', 'No se pudo eliminar el producto: ' + error.message);
+      setProductoAEliminar(null);
+      return;
     }
     setProductos(prev => prev.filter(p => p.id !== id));
     setCarrito(prev => prev.filter(i => i.producto.id !== id));
@@ -1041,28 +1012,18 @@ export default function DYMSApp() {
     try {
       if (editandoClienteId) {
         const { error } = await supabase.from('clientes').update(nuevoClienteData).eq('id', editandoClienteId);
-        if (error && error.code === '42501') {
-          mostrarNotificacion('advertencia', 'Cliente actualizado en tu dispositivo. (Nota: Para sincronizar con la nube, desactiva RLS en la tabla clientes de Supabase).');
-        } else {
-          mostrarNotificacion('exito', '¡Cliente actualizado con éxito!');
-        }
+        if (error) throw new Error(error.message);
+        mostrarNotificacion('exito', '¡Cliente actualizado con éxito!');
 
         const actualizados = clientes.map(c => c.id === editandoClienteId ? { ...nuevoClienteData, id: editandoClienteId } : c);
         setClientes(actualizados);
         localStorage.setItem('dyms_clientes', JSON.stringify(actualizados));
       } else {
-        let idAsignado = Date.now();
         const { data, error } = await supabase.from('clientes').insert([nuevoClienteData]).select().single();
-        if (error && error.code === '42501') {
-          mostrarNotificacion('advertencia', '¡Cliente guardado en el sistema! Nota: La tabla "clientes" de Supabase tiene RLS activado. Desactívalo en Supabase para reflejarlo en la nube.');
-        } else if (data) {
-          idAsignado = data.id;
-          mostrarNotificacion('exito', '¡Cliente registrado y sincronizado en Supabase!');
-        } else {
-          mostrarNotificacion('exito', '¡Cliente registrado en el directorio de DYM’S!');
-        }
+        if (error || !data) throw new Error(error?.message || 'Sin respuesta del servidor');
+        mostrarNotificacion('exito', '¡Cliente registrado y sincronizado en Supabase!');
 
-        const nuevos = [...clientes, { ...nuevoClienteData, id: idAsignado }];
+        const nuevos = [...clientes, { ...nuevoClienteData, id: data.id }];
         setClientes(nuevos);
         localStorage.setItem('dyms_clientes', JSON.stringify(nuevos));
       }
@@ -1081,17 +1042,13 @@ export default function DYMSApp() {
   };
 
   const handleConfirmarEliminarCliente = async (id: number) => {
-    try {
-      const { error } = await supabase.from('clientes').delete().eq('id', id);
-      if (error && error.code === '42501') {
-        mostrarNotificacion('advertencia', 'Cliente eliminado localmente. (Nota: RLS en Supabase impide borrarlo en la nube hasta desactivar RLS).');
-      } else {
-        mostrarNotificacion('exito', 'Cliente eliminado del directorio con éxito.');
-      }
-    } catch (e) {
-      console.error('Error eliminando cliente de Supabase:', e);
-      mostrarNotificacion('exito', 'Cliente eliminado del directorio.');
+    const { error } = await supabase.from('clientes').delete().eq('id', id);
+    if (error) {
+      mostrarNotificacion('error', 'No se pudo eliminar el cliente: ' + error.message);
+      setClienteAEliminar(null);
+      return;
     }
+    mostrarNotificacion('exito', 'Cliente eliminado del directorio con éxito.');
 
     const actualizados = clientes.filter(c => c.id !== id);
     setClientes(actualizados);
@@ -1135,16 +1092,14 @@ export default function DYMSApp() {
 
     try {
       if (editandoGastoId) {
-        await supabase.from('gastos').update(nuevoGasto).eq('id', editandoGastoId);
+        const { error } = await supabase.from('gastos').update(nuevoGasto).eq('id', editandoGastoId);
+        if (error) throw new Error(error.message);
         setGastos(prev => prev.map(g => g.id === editandoGastoId ? { ...nuevoGasto, id: editandoGastoId } : g));
         mostrarNotificacion('exito', '¡Gasto operacional actualizado!');
       } else {
         const { data, error } = await supabase.from('gastos').insert([nuevoGasto]).select().single();
-        if (!error && data) {
-          setGastos(prev => [data, ...prev]);
-        } else {
-          setGastos(prev => [{ ...nuevoGasto, id: Date.now() }, ...prev]);
-        }
+        if (error || !data) throw new Error(error?.message || 'Sin respuesta del servidor');
+        setGastos(prev => [data, ...prev]);
         mostrarNotificacion('exito', '¡Gasto operacional registrado en caja!');
       }
 
@@ -1170,7 +1125,8 @@ export default function DYMSApp() {
   const handleConfirmarEliminarGasto = async () => {
     if (!gastoAEliminar) return;
     try {
-      await supabase.from('gastos').delete().eq('id', gastoAEliminar.id);
+      const { error } = await supabase.from('gastos').delete().eq('id', gastoAEliminar.id);
+      if (error) throw new Error(error.message);
       setGastos(prev => prev.filter(g => g.id !== gastoAEliminar.id));
       mostrarNotificacion('exito', 'Gasto eliminado y restituido al saldo de caja.');
       setGastoAEliminar(null);
