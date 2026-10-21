@@ -4,42 +4,28 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { CATEGORIAS_PRODUCTO, UNIDADES_MEDIDA, normalizarCategoria } from '@/lib/categorias';
 import { LoginScreen } from '@/features/auth/LoginScreen';
+import { Sidebar } from '@/components/layout/Sidebar';
+import { MobileNav } from '@/components/layout/MobileNav';
+import { CajaCerradaBanner } from '@/components/layout/CajaCerradaBanner';
+import { Toasts } from '@/components/layout/Toasts';
+import type { Modulo } from '@/lib/modulos';
 import {
-  Package, 
-  ShoppingCart, 
-  DollarSign, 
-  TrendingUp, 
-  AlertTriangle, 
-  Send, 
-  Plus, 
-  ShieldCheck, 
-  User, 
-  Receipt, 
-  Wallet, 
-  CheckCircle2, 
-  RefreshCw, 
-  LogOut, 
-  FileSpreadsheet, 
-  Printer, 
-  Users, 
-  Search, 
-  Filter, 
-  BarChart3, 
-  Calendar, 
-  Layers, 
-  AlertCircle, 
-  Trash2, 
-  Edit2, 
-  ArrowRight, 
-  ArrowUpRight, 
-  Check, 
-  X, 
-  Loader2, 
-  Info, 
-  Eye,
+  ShoppingCart,
+  AlertTriangle,
+  Send,
+  Plus,
+  Receipt,
+  Wallet,
+  RefreshCw,
+  FileSpreadsheet,
+  Printer,
+  Search,
+  Layers,
+  AlertCircle,
+  Trash2,
+  Loader2,
   Lock,
   Percent,
-  Calculator,
   RotateCcw
 } from 'lucide-react';
 
@@ -162,7 +148,7 @@ const cargarPerfilUsuario = async (email: string): Promise<Usuario | null> => {
 export default function DYMSApp() {
   // 1. Sesión y Navegación
   const [usuario, setUsuario] = useState<Usuario | null>(null);
-  const [moduloActivo, setModuloActivo] = useState<'dashboard' | 'pos' | 'ventas' | 'inventario' | 'caja' | 'clientes' | 'gastos' | 'reportes'>('dashboard');
+  const [moduloActivo, setModuloActivo] = useState<Modulo>('dashboard');
   const [filtroVentasTiempo, setFiltroVentasTiempo] = useState<'hoy' | 'todas'>('hoy');
   const [busquedaVentasHist, setBusquedaVentasHist] = useState('');
 
@@ -1307,171 +1293,42 @@ ${detalle}
   // ==========================================
   // VISTA PRINCIPAL CON NAVEGACIÓN
   // ==========================================
+  const stockBajo = productos.filter(p => p.stock <= p.stock_minimo).length;
+  const cajaAbierta = cajaActual?.estado === 'abierta';
+
   return (
-    <div className="min-h-screen bg-[#CBD5E1] text-[#212121] flex flex-col">
-      {/* NOTIFICACIONES VISUALES FLOTANTES (NO INVASIVAS, CERO ALERT POPUPS) */}
-      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none no-print">
-        {notificaciones.map(n => (
-          <div
-            key={n.id}
-            className={`pointer-events-auto shadow-2xl rounded-2xl px-4 py-3 flex items-center gap-3 border-2 text-xs font-bold transition transform duration-200 ${
-              n.tipo === 'exito' ? 'bg-emerald-600 border-emerald-700 text-white' :
-              n.tipo === 'error' ? 'bg-[#D32F2F] border-red-700 text-white' :
-              n.tipo === 'advertencia' ? 'bg-amber-500 border-amber-600 text-black' :
-              'bg-[#212121] border-black text-white'
-            }`}
-          >
-            {n.tipo === 'exito' && <CheckCircle2 className="w-5 h-5 shrink-0" />}
-            {n.tipo === 'error' && <AlertTriangle className="w-5 h-5 shrink-0" />}
-            {n.tipo === 'advertencia' && <AlertCircle className="w-5 h-5 shrink-0" />}
-            {n.tipo === 'info' && <Info className="w-5 h-5 shrink-0" />}
-            <span className="flex-1">{n.mensaje}</span>
-            <button
-              onClick={() => setNotificaciones(prev => prev.filter(item => item.id !== n.id))}
-              className="opacity-70 hover:opacity-100 ml-2"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ))}
-      </div>
+    <div className="min-h-dvh bg-papel text-tinta lg:flex">
+      {/* Notificaciones flotantes */}
+      <Toasts
+        notificaciones={notificaciones}
+        onCerrar={(id) => setNotificaciones(prev => prev.filter(item => item.id !== id))}
+      />
 
-      {/* ENCABEZADO FIJO (STICKY, SIN DESPLAZAMIENTOS) & SIN 'v3.0' */}
-      <header className="bg-[#212121] text-white shadow-xl sticky top-0 z-40 border-b-4 border-[#E35336] w-full no-print">
-        <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
-          {/* Logo y Nombre Limpio */}
-          <div className="flex items-center gap-3">
-            <div className="bg-[#E35336] text-white p-2 rounded-2xl shadow-md">
-              <Package className="w-5 h-5 stroke-[2.5]" />
-            </div>
-            <div>
-              <span className="text-2xl font-black tracking-tight text-white">DYM’S</span>
-              <p className="text-[10px] font-medium text-[#FFF8DC]/70 hidden sm:block">Gestión de Inventario, Ventas & Caja</p>
-            </div>
-          </div>
+      {/* Menú lateral (escritorio) */}
+      <Sidebar
+        moduloActivo={moduloActivo}
+        onCambiar={setModuloActivo}
+        usuario={usuario}
+        onSalir={handleLogout}
+        stockBajo={stockBajo}
+      />
 
-          {/* Menú de Navegación Modular */}
-          <nav className="flex items-center gap-1 bg-[#2b2b2b] p-1 rounded-2xl border border-white/10 overflow-x-auto">
-            <button
-              onClick={() => setModuloActivo('dashboard')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                moduloActivo === 'dashboard' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
-              }`}
-            >
-              <BarChart3 className="w-3.5 h-3.5" />
-              Inicio
-            </button>
-            <button
-              onClick={() => setModuloActivo('pos')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                moduloActivo === 'pos' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
-              }`}
-            >
-              <ShoppingCart className="w-3.5 h-3.5" />
-              Venta POS
-            </button>
-            <button
-              onClick={() => setModuloActivo('ventas')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                moduloActivo === 'ventas' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
-              }`}
-            >
-              <Receipt className="w-3.5 h-3.5" />
-              Ventas
-            </button>
-            <button
-              onClick={() => setModuloActivo('inventario')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                moduloActivo === 'inventario' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              Inventario
-            </button>
-            <button
-              onClick={() => setModuloActivo('caja')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                moduloActivo === 'caja' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
-              }`}
-            >
-              <Wallet className="w-3.5 h-3.5" />
-              Caja
-            </button>
-            <button
-              onClick={() => setModuloActivo('clientes')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                moduloActivo === 'clientes' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              Clientes
-            </button>
-            {usuario.rol === 'admin' && (
-              <>
-                <button
-                  onClick={() => setModuloActivo('gastos')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                    moduloActivo === 'gastos' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
-                  }`}
-                >
-                  <DollarSign className="w-3.5 h-3.5" />
-                  Gastos
-                </button>
-                <button
-                  onClick={() => setModuloActivo('reportes')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                    moduloActivo === 'reportes' ? 'bg-[#E35336] text-white shadow' : 'text-white/70 hover:text-white'
-                  }`}
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  Reportes
-                </button>
-              </>
-            )}
-          </nav>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Barra superior e inferior (celular y tablet) */}
+        <MobileNav
+          moduloActivo={moduloActivo}
+          onCambiar={setModuloActivo}
+          usuario={usuario}
+          onSalir={handleLogout}
+          stockBajo={stockBajo}
+          cajaAbierta={cajaAbierta}
+        />
 
-          {/* BOTÓN DE SALIDA INDEPENDIENTE */}
-          <div className="flex items-center gap-2 border-l border-white/20 pl-3">
-            <div className="text-right hidden md:block">
-              <p className="text-xs font-bold text-white leading-tight">{usuario.nombre}</p>
-              <span className={`text-[9px] font-black uppercase px-2 py-0.2 rounded-md ${
-                usuario.rol === 'admin' ? 'bg-[#FFF8DC] text-[#212121]' : 'bg-[#E35336] text-white'
-              }`}>
-                {usuario.rol === 'admin' ? 'Administrador' : 'Vendedor'}
-              </span>
-            </div>
-            <button
-              onClick={handleLogout}
-              title="Cerrar Sesión / Salir"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-[#D32F2F] text-white text-xs font-bold transition"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Salida</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* AVISO VISUAL DE CAJA CERRADA */}
-      {(!cajaActual || cajaActual.estado === 'cerrada') && (
-        <div className="bg-[#D32F2F] text-white py-2 px-4 shadow-md text-xs font-bold no-print">
-          <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-[#FFF8DC]" />
-              <span><strong>CAJA CERRADA:</strong> Las ventas y operaciones están bloqueadas hasta realizar la apertura diaria.</span>
-            </div>
-            <button
-              onClick={() => setModuloActivo('caja')}
-              className="bg-white text-[#D32F2F] px-3 py-1 rounded-lg font-black hover:bg-[#FFF8DC] transition shadow-xs"
-            >
-              Abrir Caja Ahora
-            </button>
-          </div>
-        </div>
-      )}
+        {/* Aviso de caja cerrada */}
+        {!cajaAbierta && <CajaCerradaBanner onAbrir={() => setModuloActivo('caja')} />}
 
       {/* CONTENIDO PRINCIPAL */}
-      <main className="max-w-7xl mx-auto px-4 py-6 w-full flex-1">
+      <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 pb-28 pt-6 sm:px-8 lg:pb-10 lg:pt-8">
         {/* ============================================================ */}
         {/* 1. MÓDULO: DASHBOARD / INICIO */}
         {/* ============================================================ */}
@@ -2801,6 +2658,7 @@ ${detalle}
           </div>
         )}
       </main>
+      </div>
 
       {/* ============================================================ */}
       {/* 6. MODAL: TICKET DE VENTA (DISEÑO LIMPIO, UNA SOLA IMPRESIÓN) */}
