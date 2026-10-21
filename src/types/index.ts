@@ -83,6 +83,21 @@ export interface SesionCaja {
   created_at?: string;
 }
 
+/** Fila de cierres_caja (comprobante de arqueo) */
+export interface CierreCaja {
+  fecha: string;
+  monto_inicial: number;
+  ventas_efectivo: number;
+  ventas_transferencia: number;
+  total_gastos: number;
+  dinero_esperado: number;
+  dinero_real: number;
+  diferencia: number;
+  observaciones: string;
+  responsable: string;
+  hora_cierre: string;
+}
+
 export interface NotificacionVisual {
   id: number;
   tipo: 'exito' | 'error' | 'advertencia' | 'info';
