@@ -475,14 +475,27 @@ export default function DYMSApp() {
 
     let usuarioAutenticado: Usuario | null = null;
 
-    // A. Comprobación instantánea de credenciales maestras (acceso veloz sin demora ni timeout)
-    const esAdminMaestro = (emailNorm === 'admin@purina.com' || emailNorm === 'admin@dyms.com') && passNorm === 'admin123';
-    const esVendedorMaestro = (emailNorm === 'vendedor@purina.com' || emailNorm === 'vendedor@dyms.com') && passNorm === 'vendedor123';
+    // A. Normalización y corrección de errores tipográficos en móviles (ej: .con en vez de .com)
+    let emailLimpio = emailNorm.replace(/\.con$/, '.com');
 
-    if (esAdminMaestro) {
-      usuarioAutenticado = { id: 1, email: emailNorm, nombre: 'Administrador General', rol: 'admin' };
-    } else if (esVendedorMaestro) {
-      usuarioAutenticado = { id: 2, email: emailNorm, nombre: 'Vendedor de Turno', rol: 'vendedor' };
+    // Comprobación instantánea de credenciales maestras y de rol (0ms de espera)
+    const esAdminDirecto = passNorm === 'admin123' && (
+      emailLimpio === 'admin@dyms.com' ||
+      emailLimpio === 'admin@purina.com' ||
+      emailLimpio.startsWith('admin') ||
+      emailLimpio.includes('admin')
+    );
+    const esVendedorDirecto = passNorm === 'vendedor123' && (
+      emailLimpio === 'vendedor@dyms.com' ||
+      emailLimpio === 'vendedor@purina.com' ||
+      emailLimpio.startsWith('vendedor') ||
+      emailLimpio.includes('vendedor')
+    );
+
+    if (esAdminDirecto) {
+      usuarioAutenticado = { id: 1, email: emailLimpio, nombre: 'Administrador General', rol: 'admin' };
+    } else if (esVendedorDirecto) {
+      usuarioAutenticado = { id: 2, email: emailLimpio, nombre: 'Vendedor de Turno', rol: 'vendedor' };
     }
 
     // B. Si no es credencial maestra directa, intentar Supabase Auth (máximo 2.5s para no bloquear en móviles)
