@@ -11,6 +11,7 @@ import { Toasts } from '@/components/layout/Toasts';
 import type { Modulo } from '@/lib/modulos';
 import type { CierreCaja, Cliente, Gasto, ItemCarrito, NotificacionVisual, Producto, SesionCaja, Usuario, Venta } from '@/types';
 import { formatoMoneda } from '@/lib/formato';
+import { conLimiteDeTiempo, LIMITE_AVISO_DATOS, LIMITE_LOGIN, LIMITE_PERFIL, TiempoAgotadoError } from '@/lib/tiempo';
 import { CargandoModulo, ConfirmDialog } from '@/components/ui';
 import { ClientesView } from '@/features/clientes/ClientesView';
 import { ClienteFormModal } from '@/features/clientes/ClienteFormModal';
@@ -199,16 +200,19 @@ export default function DYMSApp() {
   useEffect(() => {
     // 1. Restaurar sesión de Supabase Auth (el perfil y rol se leen de la tabla 'usuarios')
     localStorage.removeItem('dyms_usuario');
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user.email) {
-        const u = await cargarPerfilUsuario(session.user.email);
-        if (u) {
-          setUsuario(u);
-        } else {
-          await supabase.auth.signOut();
+    // Con límite de tiempo: si la red no responde, se queda en la pantalla de ingreso
+    conLimiteDeTiempo(supabase.auth.getSession(), LIMITE_PERFIL)
+      .then(async ({ data: { session } }) => {
+        if (session?.user.email) {
+          const u = await conLimiteDeTiempo(cargarPerfilUsuario(session.user.email), LIMITE_PERFIL);
+          if (u) {
+            setUsuario(u);
+          } else {
+            await supabase.auth.signOut();
+          }
         }
-      }
-    });
+      })
+      .catch((e) => console.warn('No se pudo recuperar la sesión guardada:', e));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_OUT') {
         setUsuario(null);
@@ -227,6 +231,11 @@ export default function DYMSApp() {
 
   const cargarDatosGenerales = async () => {
     setLoading(true);
+    // Si la red está lenta, se quita la pantalla de carga y se avisa; los datos llegan cuando respondan
+    const avisoLentitud = setTimeout(() => {
+      setLoading(false);
+      mostrarNotificacion('advertencia', 'Los datos están tardando en cargar. Revisa tu conexión a internet; se mostrarán apenas lleguen.');
+    }, LIMITE_AVISO_DATOS);
     try {
       // 1. Cargar Productos
       const { data: prods, error: errProds } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
@@ -321,6 +330,7 @@ export default function DYMSApp() {
     } catch (e) {
       console.error('Error cargando datos de Supabase:', e);
     } finally {
+      clearTimeout(avisoLentitud);
       setLoading(false);
     }
   };
@@ -357,16 +367,27 @@ export default function DYMSApp() {
     setLoginError('');
     setLoadingLogin(true);
 
-    const emailNorm = loginEmail.trim().toLowerCase();
+    // Corrige el error típico del teclado del celular: "…@dyms.con" en vez de ".com"
+    const emailNorm = loginEmail.trim().toLowerCase().replace(/\.con$/, '.com');
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email: emailNorm, password: loginPass });
+      const { error } = await conLimiteDeTiempo(
+        supabase.auth.signInWithPassword({ email: emailNorm, password: loginPass }),
+        LIMITE_LOGIN
+      );
       if (error) {
-        setLoginError('Credenciales incorrectas. Verifica tu correo y contraseña.');
+        const mensaje = (error.message || '').toLowerCase();
+        if (mensaje.includes('invalid login credentials')) {
+          setLoginError('Correo o contraseña incorrectos.');
+        } else if (mensaje.includes('email not confirmed')) {
+          setLoginError('Este correo todavía no está confirmado. Pídele al administrador que lo confirme en Supabase.');
+        } else {
+          setLoginError('No se pudo conectar con el servidor. Revisa tu conexión a internet e inténtalo de nuevo.');
+        }
         return;
       }
 
-      const u = await cargarPerfilUsuario(emailNorm);
+      const u = await conLimiteDeTiempo(cargarPerfilUsuario(emailNorm), LIMITE_PERFIL);
       if (!u) {
         await supabase.auth.signOut();
         setLoginError('Tu cuenta no tiene un rol asignado en DYM’S. Contacta al administrador.');
@@ -376,8 +397,12 @@ export default function DYMSApp() {
       setUsuario(u);
       setLoginPass('');
       mostrarNotificacion('exito', `¡Bienvenido ${u.nombre}!`);
-    } catch {
-      setLoginError('No se pudo conectar con el servidor. Intenta de nuevo.');
+    } catch (err) {
+      setLoginError(
+        err instanceof TiempoAgotadoError
+          ? 'El servidor está tardando demasiado en responder. Revisa tu conexión a internet e inténtalo de nuevo.'
+          : 'No se pudo conectar con el servidor. Revisa tu conexión a internet e inténtalo de nuevo.'
+      );
     } finally {
       setLoadingLogin(false);
     }
