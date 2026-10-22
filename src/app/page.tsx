@@ -11,6 +11,7 @@ import { Toasts } from '@/components/layout/Toasts';
 import type { Modulo } from '@/lib/modulos';
 import type { CierreCaja, Cliente, Gasto, ItemCarrito, NotificacionVisual, Producto, SesionCaja, Usuario, Venta } from '@/types';
 import { formatoMoneda } from '@/lib/formato';
+import { conLimiteDeTiempo, LIMITE_AVISO_DATOS, LIMITE_LOGIN, LIMITE_PERFIL, TiempoAgotadoError } from '@/lib/tiempo';
 import { CargandoModulo, ConfirmDialog } from '@/components/ui';
 import { ClientesView } from '@/features/clientes/ClientesView';
 import { ClienteFormModal } from '@/features/clientes/ClienteFormModal';
@@ -30,12 +31,6 @@ import { ComprobanteCierreModal } from '@/features/caja/ComprobanteCierreModal';
 import { TicketVentaModal, type TicketVenta } from '@/features/pos/TicketVentaModal';
 import { ProductoFormModal } from '@/features/inventario/ProductoFormModal';
 
-const PRODUCTOS_BASE: Producto[] = [
-  { id: 1, nombre: 'Purina Engorde 40kg', categoria: 'Purinas y Concentrados', precio_compra: 95000, precio_venta: 115000, precio_mayorista: 110000, iva_porcentaje: 0, stock: 24, stock_minimo: 5, unidad_medida: 'bulto' },
-  { id: 2, nombre: 'Purina Ponedora 40kg', categoria: 'Purinas y Concentrados', precio_compra: 92000, precio_venta: 110000, precio_mayorista: 106000, iva_porcentaje: 0, stock: 18, stock_minimo: 5, unidad_medida: 'bulto' },
-  { id: 3, nombre: 'Purina Iniciación 40kg', categoria: 'Purinas y Concentrados', precio_compra: 98000, precio_venta: 118000, precio_mayorista: 113000, iva_porcentaje: 0, stock: 15, stock_minimo: 4, unidad_medida: 'bulto' }
-];
-
 const esVentaDeHoy = (fechaStr?: string) => {
   if (!fechaStr) return false;
   const f = new Date(fechaStr);
@@ -45,54 +40,19 @@ const esVentaDeHoy = (fechaStr?: string) => {
     f.getFullYear() === hoy.getFullYear();
 };
 
-// Perfil y rol del usuario autenticado (con soporte para tabla 'usuarios' y credenciales del sistema)
+// Perfil y rol del usuario autenticado (protegido por RLS: cada quien solo lee su fila)
 const cargarPerfilUsuario = async (email: string): Promise<Usuario | null> => {
-  const emailNorm = (email || '').trim().toLowerCase();
-  if (!emailNorm) return null;
-
-  try {
-    const { data: dbUser, error } = await supabase
-      .from('usuarios')
-      .select('id, email, nombre, rol')
-      .ilike('email', emailNorm)
-      .maybeSingle();
-
-    if (!error && dbUser) {
-      return {
-        id: dbUser.id,
-        email: dbUser.email,
-        nombre: dbUser.nombre || (dbUser.rol === 'admin' ? 'Administrador General' : 'Vendedor de Turno'),
-        rol: dbUser.rol === 'admin' ? 'admin' : 'vendedor'
-      };
-    }
-  } catch (err) {
-    console.warn('Error al cargar perfil desde base de datos:', err);
-  }
-
-  // Fallback si la tabla usuarios no tiene la fila o la red falla
-  if (emailNorm.includes('admin') || emailNorm === 'admin@purina.com' || emailNorm === 'admin@dyms.com') {
-    return {
-      id: 1,
-      email: emailNorm,
-      nombre: 'Administrador General',
-      rol: 'admin'
-    };
-  }
-
-  if (emailNorm.includes('vendedor') || emailNorm === 'vendedor@purina.com' || emailNorm === 'vendedor@dyms.com') {
-    return {
-      id: 2,
-      email: emailNorm,
-      nombre: 'Vendedor de Turno',
-      rol: 'vendedor'
-    };
-  }
-
+  const { data: dbUser, error } = await supabase
+    .from('usuarios')
+    .select('id, email, nombre, rol')
+    .ilike('email', email)
+    .maybeSingle();
+  if (error || !dbUser) return null;
   return {
-    id: 99,
-    email: emailNorm,
-    nombre: 'Usuario DYM’S',
-    rol: 'vendedor'
+    id: dbUser.id,
+    email: dbUser.email,
+    nombre: dbUser.nombre || (dbUser.rol === 'admin' ? 'Administrador General' : 'Vendedor de Turno'),
+    rol: dbUser.rol === 'admin' ? 'admin' : 'vendedor'
   };
 };
 
@@ -238,57 +198,28 @@ export default function DYMSApp() {
   // INICIALIZACIÓN Y PERSISTENCIA (F5 / RECARGA)
   // ==========================================
   useEffect(() => {
-    // 1. Restaurar sesión: primero desde localStorage para carga instantánea en móviles y navegadores
-    const sesionGuardada = localStorage.getItem('dyms_usuario');
-
-    // Restaurar cache local de productos y ventas para evitar pantallas en blanco o esperas
-    try {
-      const prodCache = localStorage.getItem('dyms_productos');
-      if (prodCache) {
-        const parsedP = JSON.parse(prodCache);
-        if (Array.isArray(parsedP) && parsedP.length > 0) setProductos(parsedP);
-      }
-      const vtsCache = localStorage.getItem('dyms_ventas');
-      if (vtsCache) {
-        const parsedV = JSON.parse(vtsCache);
-        if (Array.isArray(parsedV) && parsedV.length > 0) setVentas(parsedV);
-      }
-    } catch {}
-    if (sesionGuardada) {
-      try {
-        const parsed = JSON.parse(sesionGuardada);
-        if (parsed && parsed.email && parsed.rol) {
-          setUsuario(parsed);
+    // 1. Restaurar sesión de Supabase Auth (el perfil y rol se leen de la tabla 'usuarios')
+    localStorage.removeItem('dyms_usuario');
+    // Con límite de tiempo: si la red no responde, se queda en la pantalla de ingreso
+    conLimiteDeTiempo(supabase.auth.getSession(), LIMITE_PERFIL)
+      .then(async ({ data: { session } }) => {
+        if (session?.user.email) {
+          const u = await conLimiteDeTiempo(cargarPerfilUsuario(session.user.email), LIMITE_PERFIL);
+          if (u) {
+            setUsuario(u);
+          } else {
+            await supabase.auth.signOut();
+          }
         }
-      } catch {
-        localStorage.removeItem('dyms_usuario');
-      }
-    }
-
-    // 2. Verificar sesión de Supabase Auth en segundo plano
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user?.email) {
-        const u = await cargarPerfilUsuario(session.user.email);
-        if (u) {
-          setUsuario(u);
-          localStorage.setItem('dyms_usuario', JSON.stringify(u));
-        }
-      }
-    }).catch((e) => {
-      console.warn('Verificación de sesión Supabase Auth diferida:', e);
-    });
-
+      })
+      .catch((e) => console.warn('No se pudo recuperar la sesión guardada:', e));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_OUT') {
-        const guardado = localStorage.getItem('dyms_usuario');
-        if (!guardado) {
-          setUsuario(null);
-          setCarrito([]);
-        }
+        setUsuario(null);
+        setCarrito([]);
       }
     });
-
-    // 3. Teléfono Admin
+    // 2. Teléfono Admin
     const telGuardado = localStorage.getItem('dyms_tel_admin');
     if (telGuardado) {
       // Se lee después de montar: localStorage no existe en el servidor
@@ -300,57 +231,29 @@ export default function DYMSApp() {
 
   const cargarDatosGenerales = async () => {
     setLoading(true);
+    // Si la red está lenta, se quita la pantalla de carga y se avisa; los datos llegan cuando respondan
+    const avisoLentitud = setTimeout(() => {
+      setLoading(false);
+      mostrarNotificacion('advertencia', 'Los datos están tardando en cargar. Revisa tu conexión a internet; se mostrarán apenas lleguen.');
+    }, LIMITE_AVISO_DATOS);
     try {
-      // Peticiones paralelas ultra rápidas con límite de 4 segundos
-      const timeoutPromise = new Promise<{ timeout: true }>((resolve) =>
-        setTimeout(() => resolve({ timeout: true }), 4000)
-      );
-
-      const fetchPromise = Promise.allSettled([
-        supabase.from('productos').select('*').order('nombre', { ascending: true }),
-        supabase.from('ventas').select('*').order('fecha', { ascending: false }),
-        supabase.from('gastos').select('*').order('fecha', { ascending: false }),
-        supabase.from('clientes').select('*').order('nombre', { ascending: true }),
-        supabase.from('caja').select('*').order('id', { ascending: false }).limit(1),
-        supabase.from('cierres_caja').select('*').order('hora_cierre', { ascending: false })
-      ]);
-
-      const result = await Promise.race([fetchPromise, timeoutPromise]);
-
-      if ('timeout' in result) {
-        console.warn('Carga de datos superó 4s, continuando con datos en memoria');
-        setProductos(prev => prev.length > 0 ? prev : PRODUCTOS_BASE);
-        setLoading(false);
-        return;
+      // 1. Cargar Productos
+      const { data: prods, error: errProds } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
+      if (errProds) {
+        mostrarNotificacion('error', 'No se pudieron cargar los productos: ' + errProds.message);
       }
+      setProductos((prods || []).map(p => ({
+        ...p,
+        categoria: normalizarCategoria(p.categoria),
+        precio_mayorista: p.precio_mayorista || p.precio_venta * 0.95,
+        iva_porcentaje: p.iva_porcentaje || 0,
+        unidad_medida: p.unidad_medida || 'bulto'
+      })));
 
-      const [resProds, resVts, resGts, resClis, resCj, resCierres] = result;
-
-      // 1. Productos
-      if (resProds.status === 'fulfilled' && resProds.value.data && resProds.value.data.length > 0) {
-        const prodsMapeados = resProds.value.data.map(p => ({
-          ...p,
-          categoria: normalizarCategoria(p.categoria),
-          precio_mayorista: p.precio_mayorista || p.precio_venta * 0.95,
-          iva_porcentaje: p.iva_porcentaje || 0,
-          unidad_medida: p.unidad_medida || 'bulto'
-        }));
-        setProductos(prodsMapeados);
-        localStorage.setItem('dyms_productos', JSON.stringify(prodsMapeados));
-      } else {
-        setProductos(prev => {
-          if (prev.length > 0) return prev;
-          const cache = localStorage.getItem('dyms_productos');
-          if (cache) {
-            try { return JSON.parse(cache); } catch {}
-          }
-          return PRODUCTOS_BASE;
-        });
-      }
-
-      // 2. Ventas
-      if (resVts.status === 'fulfilled' && resVts.value.data) {
-        const vtsMapeadas = resVts.value.data.map(v => {
+      // 2. Cargar Ventas
+      const { data: vts } = await supabase.from('ventas').select('*').order('fecha', { ascending: false });
+      if (vts) {
+        setVentas(vts.map(v => {
           const esAnulada = (v.estado_pago && v.estado_pago.toLowerCase().startsWith('anulada')) || v.estado === 'anulada';
           let motivo = v.motivo_anulacion || '';
           if (!motivo && v.estado_pago && v.estado_pago.includes(':')) {
@@ -358,45 +261,45 @@ export default function DYMSApp() {
           }
           return {
             ...v,
-            estado: (esAnulada ? 'anulada' : 'completada') as 'completada' | 'anulada',
+            estado: esAnulada ? 'anulada' : 'completada',
             motivo_anulacion: motivo,
             subtotal: v.subtotal || v.total_venta,
             iva_total: v.iva_total || 0,
             tipo_precio: v.tipo_precio || 'detal'
           };
-        });
-        setVentas(vtsMapeadas);
-        localStorage.setItem('dyms_ventas', JSON.stringify(vtsMapeadas));
+        }));
       }
 
-      // 3. Gastos
-      if (resGts.status === 'fulfilled' && resGts.value.data) {
-        setGastos(resGts.value.data);
-      }
+      // 3. Cargar Gastos
+      const { data: gts } = await supabase.from('gastos').select('*').order('fecha', { ascending: false });
+      if (gts) setGastos(gts);
 
-      // 4. Clientes
-      if (resClis.status === 'fulfilled' && resClis.value.data && resClis.value.data.length > 0) {
-        setClientes(resClis.value.data);
-        localStorage.setItem('dyms_clientes', JSON.stringify(resClis.value.data));
+      // 4. Cargar Clientes (con respaldo localStorage)
+      const { data: clis, error: errClis } = await supabase.from('clientes').select('*').order('nombre', { ascending: true });
+      const clisLocalStr = localStorage.getItem('dyms_clientes');
+      const clisLocal: Cliente[] = clisLocalStr ? JSON.parse(clisLocalStr) : [];
+      if (clis && clis.length > 0) {
+        setClientes(clis);
+        localStorage.setItem('dyms_clientes', JSON.stringify(clis));
+      } else if (errClis && clisLocal.length > 0) {
+        // Solo lectura sin conexión: nunca se re-suben a la nube (evita duplicados)
+        setClientes(clisLocal);
       } else {
-        const clisLocalStr = localStorage.getItem('dyms_clientes');
-        if (clisLocalStr) {
-          try { setClientes(JSON.parse(clisLocalStr)); } catch {}
-        }
+        setClientes([]);
       }
 
-      // 5. Caja
-      const cjData = resCj.status === 'fulfilled' ? resCj.value.data : null;
+      // 5. PERSISTENCIA DE CAJA: No cerrar en recarga (F5)
+      const { data: cj } = await supabase.from('caja').select('*').order('id', { ascending: false }).limit(1);
       const cajaGuardadaLocal = localStorage.getItem('dyms_caja_activa');
 
-      if (cjData && cjData.length > 0 && cjData[0].estado === 'abierta') {
+      if (cj && cj.length > 0 && cj[0].estado === 'abierta') {
         const sesionAbierta: SesionCaja = {
-          id: cjData[0].id,
-          fecha: cjData[0].fecha,
-          monto_inicial: Number(cjData[0].monto_inicial || 0),
+          id: cj[0].id,
+          fecha: cj[0].fecha,
+          monto_inicial: Number(cj[0].monto_inicial || 0),
           estado: 'abierta',
           usuario_apertura: 'Admin/Vendedor',
-          created_at: cjData[0].created_at
+          created_at: cj[0].created_at
         };
         setCajaActual(sesionAbierta);
         localStorage.setItem('dyms_caja_activa', JSON.stringify(sesionAbierta));
@@ -415,32 +318,32 @@ export default function DYMSApp() {
         setCajaActual(null);
       }
 
-      // 6. Cierres
-      const cierresData = resCierres.status === 'fulfilled' ? resCierres.value.data : null;
-      if (cierresData && cierresData.length > 0) {
-        setHistorialCierres(cierresData);
-        localStorage.setItem('dyms_cierres', JSON.stringify(cierresData));
-      } else {
-        const cierresLocal = localStorage.getItem('dyms_cierres');
-        if (cierresLocal) {
-          try { setHistorialCierres(JSON.parse(cierresLocal)); } catch {}
-        }
+      // 6. Historial Cierres
+      const { data: cierres } = await supabase.from('cierres_caja').select('*').order('hora_cierre', { ascending: false });
+      const cierresLocal = localStorage.getItem('dyms_cierres');
+      if (cierres && cierres.length > 0) {
+        setHistorialCierres(cierres);
+      } else if (cierresLocal) {
+        try { setHistorialCierres(JSON.parse(cierresLocal)); } catch {}
       }
 
     } catch (e) {
       console.error('Error cargando datos de Supabase:', e);
-      setProductos(prev => prev.length > 0 ? prev : PRODUCTOS_BASE);
     } finally {
+      clearTimeout(avisoLentitud);
       setLoading(false);
     }
   };
 
-  // 3. Cargar Datos Globales solo con sesión iniciada
+  // 3. Cargar Datos Globales solo con sesión iniciada (RLS bloquea a usuarios anónimos)
   useEffect(() => {
+    // Carga intencional al iniciar sesión (RLS no deja leer sin usuario)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (usuario) cargarDatosGenerales();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario?.email]);
 
-    // Helper para identificar si una venta fue Al Detal o Al por Mayor
+  // Helper para identificar si una venta fue Al Detal o Al por Mayor
   const determinarTipoPrecioVenta = (v: Venta): 'detal' | 'mayorista' => {
     if (v.tipo_precio === 'mayorista' || v.tipo_precio === 'mayor') return 'mayorista';
     if (v.tipo_precio === 'detal') return 'detal';
@@ -457,120 +360,56 @@ export default function DYMSApp() {
   };
 
   // ==========================================
-  // AUTENTICACIÓN HÍBRIDA ROBUSTA Y ULTRA RÁPIDA
+  // AUTENTICACIÓN
   // ==========================================
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     setLoadingLogin(true);
 
-    const emailNorm = loginEmail.trim().toLowerCase();
-    const passNorm = loginPass.trim();
+    // Corrige el error típico del teclado del celular: "…@dyms.con" en vez de ".com"
+    const emailNorm = loginEmail.trim().toLowerCase().replace(/\.con$/, '.com');
 
-    if (!emailNorm || !passNorm) {
-      setLoginError('Por favor ingresa tu correo y contraseña.');
-      setLoadingLogin(false);
-      return;
-    }
-
-    let usuarioAutenticado: Usuario | null = null;
-
-    // A. Normalización y corrección de errores tipográficos en móviles (ej: .con en vez de .com)
-    let emailLimpio = emailNorm.replace(/\.con$/, '.com');
-
-    // Comprobación instantánea de credenciales maestras y de rol (0ms de espera)
-    const esAdminDirecto = passNorm === 'admin123' && (
-      emailLimpio === 'admin@dyms.com' ||
-      emailLimpio === 'admin@purina.com' ||
-      emailLimpio.startsWith('admin') ||
-      emailLimpio.includes('admin')
-    );
-    const esVendedorDirecto = passNorm === 'vendedor123' && (
-      emailLimpio === 'vendedor@dyms.com' ||
-      emailLimpio === 'vendedor@purina.com' ||
-      emailLimpio.startsWith('vendedor') ||
-      emailLimpio.includes('vendedor')
-    );
-
-    if (esAdminDirecto) {
-      usuarioAutenticado = { id: 1, email: emailLimpio, nombre: 'Administrador General', rol: 'admin' };
-    } else if (esVendedorDirecto) {
-      usuarioAutenticado = { id: 2, email: emailLimpio, nombre: 'Vendedor de Turno', rol: 'vendedor' };
-    }
-
-    // B. Si no es credencial maestra directa, intentar Supabase Auth (máximo 2.5s para no bloquear en móviles)
-    if (!usuarioAutenticado) {
-      try {
-        const authPromise = supabase.auth.signInWithPassword({ email: emailNorm, password: passNorm });
-        const timeoutPromise = new Promise<{ data: any; error: any }>((resolve) =>
-          setTimeout(() => resolve({ data: { user: null }, error: { message: 'timeout' } }), 2500)
-        );
-
-        const { data, error } = await Promise.race([authPromise, timeoutPromise]) as any;
-        if (!error && data?.user) {
-          const u = await cargarPerfilUsuario(data.user.email || emailNorm);
-          if (u) {
-            usuarioAutenticado = u;
-          }
+    try {
+      const { error } = await conLimiteDeTiempo(
+        supabase.auth.signInWithPassword({ email: emailNorm, password: loginPass }),
+        LIMITE_LOGIN
+      );
+      if (error) {
+        const mensaje = (error.message || '').toLowerCase();
+        if (mensaje.includes('invalid login credentials')) {
+          setLoginError('Correo o contraseña incorrectos.');
+        } else if (mensaje.includes('email not confirmed')) {
+          setLoginError('Este correo todavía no está confirmado. Pídele al administrador que lo confirme en Supabase.');
+        } else {
+          setLoginError('No se pudo conectar con el servidor. Revisa tu conexión a internet e inténtalo de nuevo.');
         }
-      } catch (authErr) {
-        console.warn('Supabase Auth diferido o timeout:', authErr);
+        return;
       }
-    }
 
-    // C. Si no autenticó por Supabase Auth, consultar directamente la tabla 'usuarios'
-    if (!usuarioAutenticado) {
-      try {
-        const { data: dbUser, error: errDb } = await supabase
-          .from('usuarios')
-          .select('*')
-          .ilike('email', emailNorm)
-          .eq('password', passNorm)
-          .maybeSingle();
-
-        if (!errDb && dbUser) {
-          usuarioAutenticado = {
-            id: dbUser.id,
-            email: dbUser.email,
-            nombre: dbUser.nombre || (dbUser.rol === 'admin' ? 'Administrador General' : 'Vendedor de Turno'),
-            rol: dbUser.rol === 'admin' ? 'admin' : 'vendedor'
-          };
-        }
-      } catch (errDb) {
-        console.warn('Consulta directa a tabla usuarios falló:', errDb);
+      const u = await conLimiteDeTiempo(cargarPerfilUsuario(emailNorm), LIMITE_PERFIL);
+      if (!u) {
+        await supabase.auth.signOut();
+        setLoginError('Tu cuenta no tiene un rol asignado en DYM’S. Contacta al administrador.');
+        return;
       }
-    }
 
-    // D. Soporte de respaldo para cuentas con rol en correo
-    if (!usuarioAutenticado) {
-      if (emailNorm.includes('admin') && passNorm === 'admin123') {
-        usuarioAutenticado = { id: 1, email: emailNorm, nombre: 'Administrador General', rol: 'admin' };
-      } else if (emailNorm.includes('vendedor') && passNorm === 'vendedor123') {
-        usuarioAutenticado = { id: 2, email: emailNorm, nombre: 'Vendedor de Turno', rol: 'vendedor' };
-      }
-    }
-
-    // Procesar resultado final
-    if (usuarioAutenticado) {
-      setUsuario(usuarioAutenticado);
-      localStorage.setItem('dyms_usuario', JSON.stringify(usuarioAutenticado));
+      setUsuario(u);
       setLoginPass('');
-      setLoginError('');
-      // Intentar sincronizar sesión de Supabase Auth en segundo plano
-      supabase.auth.signInWithPassword({ email: emailNorm, password: passNorm }).catch(() => {});
-      mostrarNotificacion('exito', `¡Bienvenido ${usuarioAutenticado.nombre}!`);
-    } else {
-      setLoginError('Credenciales incorrectas. Verifica tu correo y contraseña.');
+      mostrarNotificacion('exito', `¡Bienvenido ${u.nombre}!`);
+    } catch (err) {
+      setLoginError(
+        err instanceof TiempoAgotadoError
+          ? 'El servidor está tardando demasiado en responder. Revisa tu conexión a internet e inténtalo de nuevo.'
+          : 'No se pudo conectar con el servidor. Revisa tu conexión a internet e inténtalo de nuevo.'
+      );
+    } finally {
+      setLoadingLogin(false);
     }
-
-    setLoadingLogin(false);
   };
 
   const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch {}
-    localStorage.removeItem('dyms_usuario');
+    await supabase.auth.signOut();
     setUsuario(null);
     setCarrito([]);
     mostrarNotificacion('info', 'Has cerrado tu sesión.');
@@ -831,112 +670,42 @@ export default function DYMSApp() {
     });
 
     try {
-      let nuevasVentas: Venta[] = [];
-      let exitoRPC = false;
-
-      // 1. Intentar registrar vía RPC atómico (si la migración SQL está aplicada en Supabase)
-      try {
-        const { data: ventasDB, error } = await supabase.rpc('registrar_venta', {
-          p_items: carrito.map(i => ({ producto_id: i.producto.id, cantidad: i.cantidad, tipo_precio: i.tipo_precio })),
-          p_metodo_pago: metodoPagoPOS,
-          p_cliente_nombre: clienteNombreFinal
-        });
-
-        if (!error && ventasDB && ventasDB.length > 0) {
-          const filasDB: Venta[] = ventasDB;
-          nuevasVentas = filasDB.map((data, idx) => {
-            const item = carrito[idx];
-            return {
-              ...data,
-              cliente_documento: clienteDocFinal,
-              tipo_precio: item?.tipo_precio,
-              subtotal: item?.subtotal,
-              iva_total: item?.iva_monto,
-              estado: 'completada'
-            };
-          });
-
-          // Stock real tras la venta (descontado por la base de datos)
-          const idsVendidos = Array.from(stockADescontarPorProducto.keys());
-          const { data: stocks } = await supabase.from('productos').select('id, stock').in('id', idsVendidos);
-
-          setVentas(prev => [...nuevasVentas, ...prev]);
-          setProductos(prev => prev.map(p => {
-            const real = stocks?.find(s => s.id === p.id);
-            if (real) return { ...p, stock: real.stock };
-            const descuento = stockADescontarPorProducto.get(p.id);
-            return descuento ? { ...p, stock: Math.max(0, p.stock - descuento) } : p;
-          }));
-          exitoRPC = true;
-        }
-      } catch (errRPC) {
-        console.warn('RPC registrar_venta omitido o no disponible, usando registro directo:', errRPC);
+      // Venta atómica en la base de datos: registra todas las líneas y descuenta stock
+      // en una sola transacción (función registrar_venta, ver supabase/migrations)
+      const { data: ventasDB, error } = await supabase.rpc('registrar_venta', {
+        p_items: carrito.map(i => ({ producto_id: i.producto.id, cantidad: i.cantidad, tipo_precio: i.tipo_precio })),
+        p_metodo_pago: metodoPagoPOS,
+        p_cliente_nombre: clienteNombreFinal
+      });
+      if (error) {
+        console.error('Error registrando venta en Supabase:', error);
+        throw new Error(error.message);
       }
 
-      // 2. Si el RPC falló o la función no existe en Supabase, registrar directamente
-      if (!exitoRPC) {
-        for (const item of carrito) {
-          const ventaRecordDB = {
-            producto_id: item.producto.id,
-            nombre_producto: item.producto.nombre,
-            cantidad: item.cantidad,
-            tipo_precio: item.tipo_precio,
-            precio_unitario: item.precio_aplicado,
-            costo_unitario: item.producto.precio_compra,
-            subtotal: item.subtotal,
-            iva_total: item.iva_monto,
-            total_venta: item.total,
-            ganancia_bruta: item.total - (item.producto.precio_compra * item.cantidad),
-            metodo_pago: metodoPagoPOS,
-            estado_pago: item.tipo_precio === 'mayorista' ? 'pagado (mayorista)' : 'pagado (detal)',
-            cliente_nombre: clienteNombreFinal,
-            vendedor: usuario?.nombre || 'Vendedor'
-          };
+      const filasDB: Venta[] = ventasDB || [];
+      const nuevasVentas: Venta[] = filasDB.map((data, idx) => {
+        const item = carrito[idx];
+        return {
+          ...data,
+          cliente_documento: clienteDocFinal,
+          tipo_precio: item?.tipo_precio,
+          subtotal: item?.subtotal,
+          iva_total: item?.iva_monto,
+          estado: 'completada'
+        };
+      });
 
-          const { data, error } = await supabase.from('ventas').insert([ventaRecordDB]).select().single();
-          if (error) {
-            console.warn('Inserción en ventas Supabase falló:', error);
-          }
+      // Stock real tras la venta (lo descontó la base de datos)
+      const idsVendidos = Array.from(stockADescontarPorProducto.keys());
+      const { data: stocks } = await supabase.from('productos').select('id, stock').in('id', idsVendidos);
 
-          nuevasVentas.push({
-            id: data ? data.id : Date.now() + Math.random(),
-            producto_id: item.producto.id,
-            cliente_documento: clienteDocFinal,
-            cliente_nombre: clienteNombreFinal,
-            nombre_producto: item.producto.nombre,
-            cantidad: item.cantidad,
-            tipo_precio: item.tipo_precio,
-            precio_unitario: item.precio_aplicado,
-            costo_unitario: item.producto.precio_compra,
-            subtotal: item.subtotal,
-            iva_total: item.iva_monto,
-            total_venta: item.total,
-            ganancia_bruta: ventaRecordDB.ganancia_bruta,
-            metodo_pago: metodoPagoPOS,
-            estado_pago: item.tipo_precio === 'mayorista' ? 'pagado (mayorista)' : 'pagado (detal)',
-            vendedor: usuario?.nombre || 'Vendedor',
-            fecha: data ? data.fecha : new Date().toISOString(),
-            estado: 'completada'
-          });
-        }
-
-        // Actualizar inventario de productos vendidos
-        for (const [prodId, cantADescontar] of stockADescontarPorProducto.entries()) {
-          const prodActual = productos.find(p => p.id === prodId);
-          if (prodActual) {
-            const nuevoStock = Math.max(0, prodActual.stock - cantADescontar);
-            try {
-              await supabase.from('productos').update({ stock: nuevoStock }).eq('id', prodId);
-            } catch {}
-          }
-        }
-
-        setVentas(prev => [...nuevasVentas, ...prev]);
-        setProductos(prev => prev.map(p => {
-          const descuento = stockADescontarPorProducto.get(p.id);
-          return descuento ? { ...p, stock: Math.max(0, p.stock - descuento) } : p;
-        }));
-      }
+      setVentas(prev => [...nuevasVentas, ...prev]);
+      setProductos(prev => prev.map(p => {
+        const real = stocks?.find(s => s.id === p.id);
+        if (real) return { ...p, stock: real.stock };
+        const descuento = stockADescontarPorProducto.get(p.id);
+        return descuento ? { ...p, stock: Math.max(0, p.stock - descuento) } : p;
+      }));
 
       const ticket = {
         numero: Math.floor(100000 + Math.random() * 900000),
@@ -988,30 +757,18 @@ export default function DYMSApp() {
 
     setProcesandoAnulacion(true);
     try {
-      let exitoRPC = false;
-      try {
-        const { error } = await supabase.rpc('anular_venta', { p_venta_id: ventaAAnular.id, p_motivo: motivoLimpio });
-        if (!error) exitoRPC = true;
-      } catch (errRPC) {
-        console.warn('RPC anular_venta omitido o no disponible, usando anulación directa:', errRPC);
-      }
-
-      const textoEstado = `anulada: ${motivoLimpio}`;
-
-      if (!exitoRPC) {
-        try {
-          await supabase.from('ventas').update({ estado_pago: textoEstado }).eq('id', ventaAAnular.id);
-        } catch {}
-      }
+      // Anulación atómica en la base de datos: marca la venta y devuelve el stock
+      const { error } = await supabase.rpc('anular_venta', { p_venta_id: ventaAAnular.id, p_motivo: motivoLimpio });
+      if (error) throw new Error(error.message);
 
       const prodRelacionado = productos.find(p => p.id === ventaAAnular.producto_id || p.nombre === ventaAAnular.nombre_producto);
       if (prodRelacionado) {
-        const nuevoStock = prodRelacionado.stock + ventaAAnular.cantidad;
-        try {
-          await supabase.from('productos').update({ stock: nuevoStock }).eq('id', prodRelacionado.id);
-        } catch {}
+        const { data: real } = await supabase.from('productos').select('stock').eq('id', prodRelacionado.id).maybeSingle();
+        const nuevoStock = real ? real.stock : prodRelacionado.stock + ventaAAnular.cantidad;
         setProductos(prev => prev.map(p => p.id === prodRelacionado.id ? { ...p, stock: nuevoStock } : p));
       }
+
+      const textoEstado = `anulada: ${motivoLimpio}`;
 
       const ventaActualizada: Venta = {
         ...ventaAAnular,
@@ -1531,6 +1288,9 @@ ${detalle}
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 pb-28 pt-6 sm:px-8 lg:pb-10 lg:pt-8">
+        {loading && productos.length === 0 && ventas.length === 0 ? (
+          <CargandoModulo />
+        ) : (
         <>
         {moduloActivo === 'dashboard' && (
           <DashboardView
@@ -1690,6 +1450,7 @@ ${detalle}
           />
         )}
         </>
+        )}
       </main>
       </div>
 
