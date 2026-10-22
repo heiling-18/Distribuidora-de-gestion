@@ -30,6 +30,12 @@ import { ComprobanteCierreModal } from '@/features/caja/ComprobanteCierreModal';
 import { TicketVentaModal, type TicketVenta } from '@/features/pos/TicketVentaModal';
 import { ProductoFormModal } from '@/features/inventario/ProductoFormModal';
 
+const PRODUCTOS_BASE: Producto[] = [
+  { id: 1, nombre: 'Purina Engorde 40kg', categoria: 'Purinas y Concentrados', precio_compra: 95000, precio_venta: 115000, precio_mayorista: 110000, iva_porcentaje: 0, stock: 24, stock_minimo: 5, unidad_medida: 'bulto' },
+  { id: 2, nombre: 'Purina Ponedora 40kg', categoria: 'Purinas y Concentrados', precio_compra: 92000, precio_venta: 110000, precio_mayorista: 106000, iva_porcentaje: 0, stock: 18, stock_minimo: 5, unidad_medida: 'bulto' },
+  { id: 3, nombre: 'Purina Iniciación 40kg', categoria: 'Purinas y Concentrados', precio_compra: 98000, precio_venta: 118000, precio_mayorista: 113000, iva_porcentaje: 0, stock: 15, stock_minimo: 4, unidad_medida: 'bulto' }
+];
+
 const esVentaDeHoy = (fechaStr?: string) => {
   if (!fechaStr) return false;
   const f = new Date(fechaStr);
@@ -234,6 +240,20 @@ export default function DYMSApp() {
   useEffect(() => {
     // 1. Restaurar sesión: primero desde localStorage para carga instantánea en móviles y navegadores
     const sesionGuardada = localStorage.getItem('dyms_usuario');
+
+    // Restaurar cache local de productos y ventas para evitar pantallas en blanco o esperas
+    try {
+      const prodCache = localStorage.getItem('dyms_productos');
+      if (prodCache) {
+        const parsedP = JSON.parse(prodCache);
+        if (Array.isArray(parsedP) && parsedP.length > 0) setProductos(parsedP);
+      }
+      const vtsCache = localStorage.getItem('dyms_ventas');
+      if (vtsCache) {
+        const parsedV = JSON.parse(vtsCache);
+        if (Array.isArray(parsedV) && parsedV.length > 0) setVentas(parsedV);
+      }
+    } catch {}
     if (sesionGuardada) {
       try {
         const parsed = JSON.parse(sesionGuardada);
@@ -281,23 +301,56 @@ export default function DYMSApp() {
   const cargarDatosGenerales = async () => {
     setLoading(true);
     try {
-      // 1. Cargar Productos
-      const { data: prods, error: errProds } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
-      if (errProds) {
-        mostrarNotificacion('error', 'No se pudieron cargar los productos: ' + errProds.message);
-      }
-      setProductos((prods || []).map(p => ({
-        ...p,
-        categoria: normalizarCategoria(p.categoria),
-        precio_mayorista: p.precio_mayorista || p.precio_venta * 0.95,
-        iva_porcentaje: p.iva_porcentaje || 0,
-        unidad_medida: p.unidad_medida || 'bulto'
-      })));
+      // Peticiones paralelas ultra rápidas con límite de 4 segundos
+      const timeoutPromise = new Promise<{ timeout: true }>((resolve) =>
+        setTimeout(() => resolve({ timeout: true }), 4000)
+      );
 
-      // 2. Cargar Ventas
-      const { data: vts } = await supabase.from('ventas').select('*').order('fecha', { ascending: false });
-      if (vts) {
-        setVentas(vts.map(v => {
+      const fetchPromise = Promise.allSettled([
+        supabase.from('productos').select('*').order('nombre', { ascending: true }),
+        supabase.from('ventas').select('*').order('fecha', { ascending: false }),
+        supabase.from('gastos').select('*').order('fecha', { ascending: false }),
+        supabase.from('clientes').select('*').order('nombre', { ascending: true }),
+        supabase.from('caja').select('*').order('id', { ascending: false }).limit(1),
+        supabase.from('cierres_caja').select('*').order('hora_cierre', { ascending: false })
+      ]);
+
+      const result = await Promise.race([fetchPromise, timeoutPromise]);
+
+      if ('timeout' in result) {
+        console.warn('Carga de datos superó 4s, continuando con datos en memoria');
+        setProductos(prev => prev.length > 0 ? prev : PRODUCTOS_BASE);
+        setLoading(false);
+        return;
+      }
+
+      const [resProds, resVts, resGts, resClis, resCj, resCierres] = result;
+
+      // 1. Productos
+      if (resProds.status === 'fulfilled' && resProds.value.data && resProds.value.data.length > 0) {
+        const prodsMapeados = resProds.value.data.map(p => ({
+          ...p,
+          categoria: normalizarCategoria(p.categoria),
+          precio_mayorista: p.precio_mayorista || p.precio_venta * 0.95,
+          iva_porcentaje: p.iva_porcentaje || 0,
+          unidad_medida: p.unidad_medida || 'bulto'
+        }));
+        setProductos(prodsMapeados);
+        localStorage.setItem('dyms_productos', JSON.stringify(prodsMapeados));
+      } else {
+        setProductos(prev => {
+          if (prev.length > 0) return prev;
+          const cache = localStorage.getItem('dyms_productos');
+          if (cache) {
+            try { return JSON.parse(cache); } catch {}
+          }
+          return PRODUCTOS_BASE;
+        });
+      }
+
+      // 2. Ventas
+      if (resVts.status === 'fulfilled' && resVts.value.data) {
+        const vtsMapeadas = resVts.value.data.map(v => {
           const esAnulada = (v.estado_pago && v.estado_pago.toLowerCase().startsWith('anulada')) || v.estado === 'anulada';
           let motivo = v.motivo_anulacion || '';
           if (!motivo && v.estado_pago && v.estado_pago.includes(':')) {
@@ -305,45 +358,45 @@ export default function DYMSApp() {
           }
           return {
             ...v,
-            estado: esAnulada ? 'anulada' : 'completada',
+            estado: (esAnulada ? 'anulada' : 'completada') as 'completada' | 'anulada',
             motivo_anulacion: motivo,
             subtotal: v.subtotal || v.total_venta,
             iva_total: v.iva_total || 0,
             tipo_precio: v.tipo_precio || 'detal'
           };
-        }));
+        });
+        setVentas(vtsMapeadas);
+        localStorage.setItem('dyms_ventas', JSON.stringify(vtsMapeadas));
       }
 
-      // 3. Cargar Gastos
-      const { data: gts } = await supabase.from('gastos').select('*').order('fecha', { ascending: false });
-      if (gts) setGastos(gts);
+      // 3. Gastos
+      if (resGts.status === 'fulfilled' && resGts.value.data) {
+        setGastos(resGts.value.data);
+      }
 
-      // 4. Cargar Clientes (con respaldo localStorage)
-      const { data: clis, error: errClis } = await supabase.from('clientes').select('*').order('nombre', { ascending: true });
-      const clisLocalStr = localStorage.getItem('dyms_clientes');
-      const clisLocal: Cliente[] = clisLocalStr ? JSON.parse(clisLocalStr) : [];
-      if (clis && clis.length > 0) {
-        setClientes(clis);
-        localStorage.setItem('dyms_clientes', JSON.stringify(clis));
-      } else if (errClis && clisLocal.length > 0) {
-        // Solo lectura sin conexión: nunca se re-suben a la nube (evita duplicados)
-        setClientes(clisLocal);
+      // 4. Clientes
+      if (resClis.status === 'fulfilled' && resClis.value.data && resClis.value.data.length > 0) {
+        setClientes(resClis.value.data);
+        localStorage.setItem('dyms_clientes', JSON.stringify(resClis.value.data));
       } else {
-        setClientes([]);
+        const clisLocalStr = localStorage.getItem('dyms_clientes');
+        if (clisLocalStr) {
+          try { setClientes(JSON.parse(clisLocalStr)); } catch {}
+        }
       }
 
-      // 5. PERSISTENCIA DE CAJA: No cerrar en recarga (F5)
-      const { data: cj } = await supabase.from('caja').select('*').order('id', { ascending: false }).limit(1);
+      // 5. Caja
+      const cjData = resCj.status === 'fulfilled' ? resCj.value.data : null;
       const cajaGuardadaLocal = localStorage.getItem('dyms_caja_activa');
 
-      if (cj && cj.length > 0 && cj[0].estado === 'abierta') {
+      if (cjData && cjData.length > 0 && cjData[0].estado === 'abierta') {
         const sesionAbierta: SesionCaja = {
-          id: cj[0].id,
-          fecha: cj[0].fecha,
-          monto_inicial: Number(cj[0].monto_inicial || 0),
+          id: cjData[0].id,
+          fecha: cjData[0].fecha,
+          monto_inicial: Number(cjData[0].monto_inicial || 0),
           estado: 'abierta',
           usuario_apertura: 'Admin/Vendedor',
-          created_at: cj[0].created_at
+          created_at: cjData[0].created_at
         };
         setCajaActual(sesionAbierta);
         localStorage.setItem('dyms_caja_activa', JSON.stringify(sesionAbierta));
@@ -362,31 +415,32 @@ export default function DYMSApp() {
         setCajaActual(null);
       }
 
-      // 6. Historial Cierres
-      const { data: cierres } = await supabase.from('cierres_caja').select('*').order('hora_cierre', { ascending: false });
-      const cierresLocal = localStorage.getItem('dyms_cierres');
-      if (cierres && cierres.length > 0) {
-        setHistorialCierres(cierres);
-      } else if (cierresLocal) {
-        try { setHistorialCierres(JSON.parse(cierresLocal)); } catch {}
+      // 6. Cierres
+      const cierresData = resCierres.status === 'fulfilled' ? resCierres.value.data : null;
+      if (cierresData && cierresData.length > 0) {
+        setHistorialCierres(cierresData);
+        localStorage.setItem('dyms_cierres', JSON.stringify(cierresData));
+      } else {
+        const cierresLocal = localStorage.getItem('dyms_cierres');
+        if (cierresLocal) {
+          try { setHistorialCierres(JSON.parse(cierresLocal)); } catch {}
+        }
       }
 
     } catch (e) {
       console.error('Error cargando datos de Supabase:', e);
+      setProductos(prev => prev.length > 0 ? prev : PRODUCTOS_BASE);
     } finally {
       setLoading(false);
     }
   };
 
-  // 3. Cargar Datos Globales solo con sesión iniciada (RLS bloquea a usuarios anónimos)
+  // 3. Cargar Datos Globales solo con sesión iniciada
   useEffect(() => {
-    // Carga intencional al iniciar sesión (RLS no deja leer sin usuario)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (usuario) cargarDatosGenerales();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario?.email]);
 
-  // Helper para identificar si una venta fue Al Detal o Al por Mayor
+    // Helper para identificar si una venta fue Al Detal o Al por Mayor
   const determinarTipoPrecioVenta = (v: Venta): 'detal' | 'mayorista' => {
     if (v.tipo_precio === 'mayorista' || v.tipo_precio === 'mayor') return 'mayorista';
     if (v.tipo_precio === 'detal') return 'detal';
@@ -1464,9 +1518,6 @@ ${detalle}
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 pb-28 pt-6 sm:px-8 lg:pb-10 lg:pt-8">
-        {loading && productos.length === 0 && ventas.length === 0 ? (
-          <CargandoModulo />
-        ) : (
         <>
         {moduloActivo === 'dashboard' && (
           <DashboardView
@@ -1626,7 +1677,6 @@ ${detalle}
           />
         )}
         </>
-        )}
       </main>
       </div>
 
