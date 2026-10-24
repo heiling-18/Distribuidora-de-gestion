@@ -286,6 +286,7 @@ export default function DYMSApp() {
         setClientes(clisLocal);
       } else {
         setClientes([]);
+        localStorage.removeItem('dyms_clientes');
       }
 
       // 5. PERSISTENCIA DE CAJA: No cerrar en recarga (F5)
@@ -303,19 +304,9 @@ export default function DYMSApp() {
         };
         setCajaActual(sesionAbierta);
         localStorage.setItem('dyms_caja_activa', JSON.stringify(sesionAbierta));
-      } else if (cajaGuardadaLocal) {
-        try {
-          const parsed = JSON.parse(cajaGuardadaLocal);
-          if (parsed && parsed.estado === 'abierta') {
-            setCajaActual(parsed);
-          } else {
-            setCajaActual(null);
-          }
-        } catch {
-          setCajaActual(null);
-        }
       } else {
         setCajaActual(null);
+        localStorage.removeItem('dyms_caja_activa');
       }
 
       // 6. Historial Cierres
@@ -323,8 +314,9 @@ export default function DYMSApp() {
       const cierresLocal = localStorage.getItem('dyms_cierres');
       if (cierres && cierres.length > 0) {
         setHistorialCierres(cierres);
-      } else if (cierresLocal) {
-        try { setHistorialCierres(JSON.parse(cierresLocal)); } catch {}
+      } else {
+        setHistorialCierres([]);
+        localStorage.removeItem('dyms_cierres');
       }
 
     } catch (e) {
