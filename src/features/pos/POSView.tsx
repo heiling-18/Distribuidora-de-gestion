@@ -71,7 +71,8 @@ export function POSView(p: POSViewProps) {
             setBusqueda(v);
             setPagina(1);
           }}
-          className="max-w-none [&_input]:h-14 [&_input]:text-[17px]"
+          anchoCompleto
+          grande
         />
 
         {!p.cajaAbierta && (
@@ -206,7 +207,7 @@ export function POSView(p: POSViewProps) {
                   setListaClientesAbierta(true);
                 }}
                 onFocus={() => setListaClientesAbierta(true)}
-                className="max-w-none"
+                anchoCompleto
               />
               {listaClientesAbierta && p.busquedaCliente.trim().length > 0 && (
                 <ul className="absolute inset-x-0 top-[54px] z-20 flex max-h-64 flex-col overflow-y-auto rounded-campo bg-superficie p-1.5 shadow-[0_18px_40px_-16px_rgba(23,19,15,0.45)]">
