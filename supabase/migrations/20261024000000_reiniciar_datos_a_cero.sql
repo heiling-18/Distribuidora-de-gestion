@@ -1,21 +1,24 @@
 -- =====================================================================
--- DYM'S — Reinicio de datos a cero y políticas de borrado para Admin
+-- DYM'S — Dejar en cero las ventas y la caja (inventario intacto)
+-- =====================================================================
+-- Ejecutar a mano en Supabase → SQL Editor. NO se puede deshacer:
+-- antes, descarga una copia de cada tabla (Table Editor → Export → CSV).
+--
+-- Borra:   ventas, caja, cierres_caja, gastos
+-- NO toca: productos (inventario y existencias), clientes, usuarios
+--
+-- Sin CASCADE a propósito: si alguna otra tabla dependiera de estas,
+-- Postgres se detiene con un error en lugar de borrar más de la cuenta.
+-- Las existencias de productos quedan como están ahora (no se devuelven
+-- las unidades de las ventas borradas).
 -- =====================================================================
 
--- 1. Políticas para que el administrador pueda eliminar registros de ventas y caja
-create policy if not exists ventas_delete on public.ventas
-  for delete to authenticated using (public.es_admin());
+begin;
 
-create policy if not exists caja_delete on public.caja
-  for delete to authenticated using (public.es_admin());
+truncate table public.ventas, public.cierres_caja, public.caja, public.gastos restart identity;
 
-create policy if not exists cierres_delete on public.cierres_caja
-  for delete to authenticated using (public.es_admin());
+commit;
 
--- 2. Vaciar tablas de prueba para dejar todo en 0
-truncate table public.ventas restart identity cascade;
-truncate table public.caja restart identity cascade;
-truncate table public.cierres_caja restart identity cascade;
-truncate table public.gastos restart identity cascade;
-truncate table public.clientes restart identity cascade;
-truncate table public.productos restart identity cascade;
+-- Opcional: si también quieres borrar los clientes, quita los dos guiones
+-- de la línea siguiente y ejecútala aparte.
+-- truncate table public.clientes restart identity;
