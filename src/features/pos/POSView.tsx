@@ -60,19 +60,19 @@ export function POSView(p: POSViewProps) {
     <div className="flex flex-wrap items-start gap-6">
       {/* Catálogo */}
       <section className="flex min-w-0 flex-[999_1_520px] flex-col gap-5" aria-label="Productos">
-        <header className="flex flex-wrap items-center justify-between gap-4">
-          <h1 className="font-display text-[34px] font-extrabold tracking-[-0.03em] sm:text-[36px]">Nueva venta</h1>
-          <SearchInput
-            etiqueta="Buscar producto"
-            placeholder="Buscar producto por nombre"
-            valor={busqueda}
-            onCambiar={(v) => {
-              setBusqueda(v);
-              setPagina(1);
-            }}
-            className="sm:max-w-[400px]"
-          />
-        </header>
+        <h1 className="font-display text-[34px] font-extrabold tracking-[-0.03em] sm:text-[36px]">Nueva venta</h1>
+
+        {/* Buscador a todo lo ancho del catálogo */}
+        <SearchInput
+          etiqueta="Buscar producto"
+          placeholder="Buscar producto por nombre"
+          valor={busqueda}
+          onCambiar={(v) => {
+            setBusqueda(v);
+            setPagina(1);
+          }}
+          className="max-w-none [&_input]:h-14 [&_input]:text-[17px]"
+        />
 
         {!p.cajaAbierta && (
           <Alert tono="aviso">
