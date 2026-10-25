@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Download, Receipt } from 'lucide-react';
-import { Badge, Button, EmptyState, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th } from '@/components/ui';
+import { Badge, Button, EmptyState, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoFecha, formatoMoneda } from '@/lib/formato';
 import type { Venta } from '@/types';
 
@@ -11,6 +11,9 @@ interface ReportesViewProps {
   onVerTicket: (v: Venta) => void;
 }
 
+const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
 export function ReportesView({ ventas, tipoPrecio, onExportar, onVerTicket }: ReportesViewProps) {
   const resumen = useMemo(() => {
     const validas = ventas.filter((v) => v.estado !== 'anulada');
@@ -19,6 +22,30 @@ export function ReportesView({ ventas, tipoPrecio, onExportar, onVerTicket }: Re
       ganancia: validas.reduce((acc, v) => acc + (Number(v.ganancia_bruta) || 0), 0),
       cantidad: validas.length,
       anuladas: ventas.length - validas.length,
+    };
+  }, [ventas]);
+
+  // Ventas de los últimos 12 meses (sin anuladas), el mes actual al final
+  const mensual = useMemo(() => {
+    const hoy = new Date();
+    const meses = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(hoy.getFullYear(), hoy.getMonth() - 11 + i, 1);
+      return { anio: d.getFullYear(), mes: d.getMonth(), total: 0, actual: i === 11 };
+    });
+    for (const v of ventas) {
+      if (v.estado === 'anulada') continue;
+      const f = new Date(v.fecha);
+      const m = meses.find((x) => x.anio === f.getFullYear() && x.mes === f.getMonth());
+      if (m) m.total += Number(v.total_venta) || 0;
+    }
+    const actual = meses[11].total;
+    const anterior = meses[10].total;
+    return {
+      meses,
+      max: Math.max(1, ...meses.map((m) => m.total)),
+      total: meses.reduce((a, m) => a + m.total, 0),
+      actual,
+      variacion: anterior > 0 ? ((actual - anterior) / anterior) * 100 : null,
     };
   }, [ventas]);
 
@@ -46,6 +73,54 @@ export function ReportesView({ ventas, tipoPrecio, onExportar, onVerTicket }: Re
           detalle="Sobre el total vendido"
         />
       </section>
+
+      {/* Gráfica de ventas por mes */}
+      <Panel className="flex flex-col gap-5 p-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-xl font-bold text-tinta">Ventas por mes</h2>
+            <p className="text-[15px] text-tinta-suave tabular">
+              <span className="capitalize">{MESES_LARGOS[mensual.meses[11].mes]}</span>: {formatoMoneda(mensual.actual)}
+              {mensual.variacion === null ? (
+                ' · sin ventas el mes anterior para comparar'
+              ) : (
+                <>
+                  {' · '}
+                  <span className={cn('font-semibold', mensual.variacion >= 0 ? 'text-exito-texto' : 'text-rojo-oscuro')}>
+                    {mensual.variacion >= 0 ? '+' : '−'}
+                    {Math.abs(mensual.variacion).toFixed(1).replace('.', ',')} %
+                  </span>{' '}
+                  frente a {MESES_LARGOS[mensual.meses[10].mes]}
+                </>
+              )}
+            </p>
+          </div>
+          <span className="text-[15px] text-tinta-suave tabular">Últimos 12 meses: {formatoMoneda(mensual.total)}</span>
+        </div>
+
+        <div className="grid h-[260px] grid-cols-12 items-end gap-1.5 pt-8 sm:gap-3">
+          {mensual.meses.map((m, i) => {
+            const etiqueta = `${MESES_LARGOS[m.mes]} ${m.anio}: ${formatoMoneda(m.total)}`;
+            return (
+              <div
+                key={`${m.anio}-${m.mes}`}
+                tabIndex={0}
+                aria-label={etiqueta}
+                className="group relative flex h-full flex-col items-center justify-end gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-maiz"
+              >
+                <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md bg-noche px-2 py-1 text-xs font-semibold capitalize text-crema opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100 tabular">
+                  {etiqueta}
+                </span>
+                <div
+                  className={cn('barra-crecer w-full rounded-[6px_6px_3px_3px]', m.actual ? 'bg-rojo' : 'bg-neutro-hover group-hover:bg-[#D6CFC2]')}
+                  style={{ height: `${Math.max(2, (m.total / mensual.max) * 100)}%`, animationDelay: `${i * 40}ms` }}
+                />
+                <span className={cn('text-[12px] sm:text-[13px]', m.actual ? 'font-bold text-tinta' : 'text-tinta-suave')}>{MESES[m.mes]}</span>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
 
       <Panel>
         <div className="flex flex-wrap items-baseline justify-between gap-2 px-6 pb-2 pt-5">
