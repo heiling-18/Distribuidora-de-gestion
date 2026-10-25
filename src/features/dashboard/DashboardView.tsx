@@ -6,6 +6,7 @@ import type { Producto, Venta } from '@/types';
 
 interface DashboardViewProps {
   nombreUsuario: string;
+  esAdmin: boolean;
   cajaAbierta: boolean;
   ventas: Venta[];
   ventasHoy: Venta[];
@@ -17,6 +18,7 @@ interface DashboardViewProps {
     efectivoEnCaja: number;
     gastosHoy: number;
     inversion: number;
+    valorComercial: number;
   };
   tipoPrecio: (v: Venta) => 'detal' | 'mayorista';
   procesandoAnulacion: boolean;
@@ -67,6 +69,11 @@ export function DashboardView(p: DashboardViewProps) {
     [p.productos]
   );
 
+  const totalBultos = useMemo(
+    () => p.productos.reduce((acc, prod) => acc + (Number(prod.stock) || 0), 0),
+    [p.productos]
+  );
+
   const vendidoHoy = p.totales.efectivoHoy + p.totales.transferenciaHoy;
 
   return (
@@ -93,7 +100,13 @@ export function DashboardView(p: DashboardViewProps) {
       </header>
 
       {/* Resumen del día */}
-      <section aria-label="Resumen del día" className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-2 xl:grid-cols-4">
+      <section
+        aria-label="Resumen del día"
+        className={cn(
+          'grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-2',
+          p.esAdmin ? 'xl:grid-cols-5' : 'xl:grid-cols-4'
+        )}
+      >
         <StatCard
           tono="oscuro"
           etiqueta="Vendido hoy"
@@ -105,7 +118,23 @@ export function DashboardView(p: DashboardViewProps) {
           valor={formatoMoneda(p.totales.dineroEnCaja)}
           detalle={`Efectivo ${formatoMoneda(p.totales.efectivoEnCaja)} · gastos ${formatoMoneda(p.totales.gastosHoy)}`}
         />
-        <StatCard etiqueta="Inversión en bodega" valor={formatoMoneda(p.totales.inversion)} detalle={`${p.productos.length} referencias registradas`} />
+        
+        {/* Total Inventario al Precio del Excel (Precio Venta Detal) */}
+        <StatCard
+          etiqueta="Total inventario (Venta)"
+          valor={formatoMoneda(p.totales.valorComercial)}
+          detalle={`${totalBultos} bultos · ${p.productos.length} referencias`}
+        />
+
+        {/* Inversión en bodega a Costo de Compra (Exclusivo Administrador) */}
+        {p.esAdmin && (
+          <StatCard
+            etiqueta="Inversión en bodega"
+            valor={formatoMoneda(p.totales.inversion)}
+            detalle={`Margen est. +${formatoMoneda(Math.max(0, p.totales.valorComercial - p.totales.inversion))}`}
+          />
+        )}
+
         <button
           type="button"
           onClick={p.onVerAlertas}

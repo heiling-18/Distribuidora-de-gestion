@@ -26,6 +26,7 @@ export function InventarioView({ productos, esAdmin, onNuevo, onEditar, onElimin
 
   const porReponer = productos.filter((p) => p.stock <= p.stock_minimo).length;
   const inversion = productos.reduce((acc, p) => acc + p.stock * p.precio_compra, 0);
+  const valorComercial = productos.reduce((acc, p) => acc + p.stock * p.precio_venta, 0);
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -43,7 +44,11 @@ export function InventarioView({ productos, esAdmin, onNuevo, onEditar, onElimin
 
   const porCategoria = CATEGORIAS_PRODUCTO.map((cat) => {
     const prods = productos.filter((p) => p.categoria === cat);
-    return { cat, stock: prods.reduce((a, p) => a + p.stock, 0), valor: prods.reduce((a, p) => a + p.stock * p.precio_compra, 0) };
+    return {
+      cat,
+      stock: prods.reduce((a, p) => a + p.stock, 0),
+      valor: prods.reduce((a, p) => a + p.stock * (esAdmin ? p.precio_compra : p.precio_venta), 0)
+    };
   }).filter((c) => c.stock > 0 || c.valor > 0);
 
   const filtrar = (fn: () => void) => {
@@ -55,7 +60,11 @@ export function InventarioView({ productos, esAdmin, onNuevo, onEditar, onElimin
     <div className="flex flex-col gap-6">
       <PageHeader
         titulo="Inventario"
-        descripcion={`${productos.length} referencias · ${formatoMoneda(inversion)} invertidos · ${porReponer} por reponer`}
+        descripcion={
+          esAdmin
+            ? `${productos.length} referencias · ${formatoMoneda(inversion)} costo invertido · ${formatoMoneda(valorComercial)} valor a venta (Excel) · ${porReponer} por reponer`
+            : `${productos.length} referencias · ${formatoMoneda(valorComercial)} valor total en bodega · ${porReponer} por reponer`
+        }
         acciones={
           <>
             <Button variante="secundario" onClick={onExportar}>
@@ -76,7 +85,7 @@ export function InventarioView({ productos, esAdmin, onNuevo, onEditar, onElimin
         <ul className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-tinta-suave" aria-label="Existencias por categoría">
           {porCategoria.map((c) => (
             <li key={c.cat} className="tabular">
-              <strong className="font-semibold text-tinta">{c.cat}:</strong> {c.stock} en bodega · {formatoMoneda(c.valor)}
+              <strong className="font-semibold text-tinta">{c.cat}:</strong> {c.stock} en bodega · {formatoMoneda(c.valor)} {esAdmin ? '(costo)' : ''}
             </li>
           ))}
         </ul>
@@ -115,16 +124,16 @@ export function InventarioView({ productos, esAdmin, onNuevo, onEditar, onElimin
             descripcion={productos.length === 0 ? 'Registra tus purinas y concentrados para empezar a vender.' : 'Prueba con otro nombre o quita los filtros.'}
           />
         ) : (
-          <Tabla minAncho={1040}>
+          <Tabla minAncho={esAdmin ? 1040 : 760}>
             <thead>
               <tr>
                 <Th>Producto</Th>
                 <Th className="w-[200px]">Existencias</Th>
-                <Th alinear="der">Costo</Th>
-                <Th alinear="der">Detal</Th>
+                {esAdmin && <Th alinear="der">Costo Compra</Th>}
+                <Th alinear="der">Precio Venta (Excel)</Th>
                 <Th alinear="der">Por mayor</Th>
-                <Th alinear="der">Margen</Th>
-                <Th alinear="der">En bodega</Th>
+                {esAdmin && <Th alinear="der">Margen</Th>}
+                <Th alinear="der">{esAdmin ? 'Inversión Bodega' : 'Subtotal Venta'}</Th>
                 {esAdmin && <Th alinear="der"><span className="sr-only">Acciones</span></Th>}
               </tr>
             </thead>
@@ -155,11 +164,13 @@ export function InventarioView({ productos, esAdmin, onNuevo, onEditar, onElimin
                         </div>
                       </div>
                     </Td>
-                    <Td alinear="der" className="tabular">{formatoMoneda(p.precio_compra)}</Td>
+                    {esAdmin && <Td alinear="der" className="tabular">{formatoMoneda(p.precio_compra)}</Td>}
                     <Td alinear="der" className="font-semibold tabular">{formatoMoneda(p.precio_venta)}</Td>
                     <Td alinear="der" className="font-semibold text-mayor tabular">{formatoMoneda(p.precio_mayorista)}</Td>
-                    <Td alinear="der" className="tabular">{margenPct.toFixed(1).replace('.', ',')} %</Td>
-                    <Td alinear="der" className="font-semibold tabular">{formatoMoneda(p.stock * p.precio_compra)}</Td>
+                    {esAdmin && <Td alinear="der" className="tabular">{margenPct.toFixed(1).replace('.', ',')} %</Td>}
+                    <Td alinear="der" className="font-semibold tabular">
+                      {formatoMoneda(p.stock * (esAdmin ? p.precio_compra : p.precio_venta))}
+                    </Td>
                     {esAdmin && (
                       <Td alinear="der" className="whitespace-nowrap">
                         {bajo && (

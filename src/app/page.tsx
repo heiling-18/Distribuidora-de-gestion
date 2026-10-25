@@ -440,9 +440,14 @@ export default function DYMSApp() {
     return base + totalVentasEfectivoHoy + totalVentasTransfHoy - totalGastosHoy;
   }, [cajaActual, totalVentasEfectivoHoy, totalVentasTransfHoy, totalGastosHoy]);
 
-  // Inversión Total en Inventario
+  // Inversión Total en Inventario (Costo de Compra)
   const valorTotalInversion = useMemo(() => {
     return productos.reduce((acc, p) => acc + (p.stock * p.precio_compra), 0);
+  }, [productos]);
+
+  // Valor Comercial Total en Inventario (Precio Venta del Excel)
+  const valorTotalVentaInventario = useMemo(() => {
+    return productos.reduce((acc, p) => acc + (p.stock * p.precio_venta), 0);
   }, [productos]);
 
   // Apertura de Caja
@@ -1075,24 +1080,47 @@ export default function DYMSApp() {
       return;
     }
 
-    const encabezados = [
-      'ID', 'Producto', 'Categoria', 'Unidad Medida', 'Costo Compra', 'Precio Detal',
-      'Precio Mayorista', 'IVA (%)', 'Stock Actual', 'Stock Minimo', 'Valor Total en Bodega'
-    ];
+    const esAdmin = usuario?.rol === 'admin';
+    const encabezados = esAdmin
+      ? [
+          'ID', 'Producto', 'Categoria', 'Unidad Medida', 'Costo Compra', 'Precio Detal (Excel)',
+          'Precio Mayorista', 'IVA (%)', 'Stock Actual', 'Stock Minimo', 'Inversion Bodega Costo', 'Valor Venta Total'
+        ]
+      : [
+          'ID', 'Producto', 'Categoria', 'Unidad Medida', 'Precio Detal (Excel)',
+          'Precio Mayorista', 'Stock Actual', 'Stock Minimo', 'Valor Total en Bodega'
+        ];
 
-    const filas = productos.map(p => [
-      p.id,
-      `"${p.nombre}"`,
-      `"${p.categoria}"`,
-      `"${p.unidad_medida}"`,
-      p.precio_compra,
-      p.precio_venta,
-      p.precio_mayorista,
-      p.iva_porcentaje,
-      p.stock,
-      p.stock_minimo,
-      p.stock * p.precio_compra
-    ].join(';'));
+    const filas = productos.map(p => {
+      if (esAdmin) {
+        return [
+          p.id,
+          `"${p.nombre}"`,
+          `"${p.categoria}"`,
+          `"${p.unidad_medida}"`,
+          p.precio_compra,
+          p.precio_venta,
+          p.precio_mayorista,
+          p.iva_porcentaje,
+          p.stock,
+          p.stock_minimo,
+          p.stock * p.precio_compra,
+          p.stock * p.precio_venta
+        ].join(';');
+      } else {
+        return [
+          p.id,
+          `"${p.nombre}"`,
+          `"${p.categoria}"`,
+          `"${p.unidad_medida}"`,
+          p.precio_venta,
+          p.precio_mayorista,
+          p.stock,
+          p.stock_minimo,
+          p.stock * p.precio_venta
+        ].join(';');
+      }
+    });
 
     const csvContent = '\uFEFF' + [encabezados.join(';'), ...filas].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1287,6 +1315,7 @@ ${detalle}
         {moduloActivo === 'dashboard' && (
           <DashboardView
             nombreUsuario={usuario.nombre}
+            esAdmin={usuario.rol === 'admin'}
             cajaAbierta={cajaAbierta}
             ventas={ventas}
             ventasHoy={ventas.filter(v => esVentaDeHoy(v.fecha))}
@@ -1297,7 +1326,8 @@ ${detalle}
               dineroEnCaja: dineroTotalDisponibleEnCaja,
               efectivoEnCaja: efectivoFisicoEnCaja,
               gastosHoy: totalGastosHoy,
-              inversion: valorTotalInversion
+              inversion: valorTotalInversion,
+              valorComercial: valorTotalVentaInventario
             }}
             tipoPrecio={determinarTipoPrecioVenta}
             procesandoAnulacion={procesandoAnulacion}
