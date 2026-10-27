@@ -55,7 +55,7 @@ export function Sidebar({ moduloActivo, onCambiar, usuario, onSalir, stockBajo }
 
   return (
     <aside className="no-print sticky top-0 hidden h-dvh w-[248px] shrink-0 flex-col gap-7 overflow-y-auto bg-noche px-4 py-6 text-crema lg:flex">
-      <DymsMark tamano={34} className="px-2 [&>span:last-child]:text-[22px]" />
+      <DymsMark tamano={44} className="px-2 [&>span:last-child]:text-[22px]" />
 
       <nav aria-label="Principal" className="flex flex-col gap-7">
         <div className="flex flex-col gap-1">{generales.map(item)}</div>

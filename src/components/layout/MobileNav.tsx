@@ -33,7 +33,7 @@ export function MobileNav({ moduloActivo, onCambiar, usuario, onSalir, stockBajo
     <>
       {/* Barra superior */}
       <header className="no-print sticky top-0 z-30 flex h-14 items-center justify-between bg-noche px-4 text-crema lg:hidden">
-        <DymsMark tamano={28} className="[&>span:last-child]:text-xl" />
+        <DymsMark tamano={36} className="[&>span:last-child]:text-xl" />
         <span
           className={cn(
             'rounded-lg px-2.5 py-1 text-[13px] font-bold',

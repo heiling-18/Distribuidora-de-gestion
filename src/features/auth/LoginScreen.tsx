@@ -50,7 +50,7 @@ export function LoginScreen({ email, password, error, cargando, onEmailChange, o
         <section className="animate-subir w-full max-w-[440px] justify-self-center rounded-[28px] bg-superficie p-8 shadow-[0_40px_90px_-30px_rgba(0,0,0,0.75)] sm:p-10 lg:justify-self-start [animation-delay:250ms]">
           <form onSubmit={onSubmit} className="flex flex-col gap-6">
             <div className="flex flex-col gap-5">
-              <DymsMark tamano={44} className="text-tinta" />
+              <DymsMark tamano={96} conNombre={false} />
               <div className="flex flex-col gap-1.5">
                 <h1 className="font-display text-[36px] font-extrabold leading-tight tracking-[-0.03em] text-tinta">
                   Bienvenido
