@@ -190,7 +190,8 @@ export default function DYMSApp() {
   const [gastoMonto, setGastoMonto] = useState('');
 
   // 12. Modal Alertas de Stock y Motivo Anulación
-  const [telefonoAdmin, setTelefonoAdmin] = useState('3101234567');
+  // WhatsApp del dueño: recibe el resumen de cada venta
+  const telefonoAdmin = '3134392533';
   const [modalAlertasStock, setModalAlertasStock] = useState(false);
   const [ventaVerMotivo, setVentaVerMotivo] = useState<Venta | null>(null);
 
@@ -219,13 +220,6 @@ export default function DYMSApp() {
         setCarrito([]);
       }
     });
-    // 2. Teléfono Admin
-    const telGuardado = localStorage.getItem('dyms_tel_admin');
-    if (telGuardado) {
-      // Se lee después de montar: localStorage no existe en el servidor
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setTelefonoAdmin(telGuardado);
-    }
     return () => subscription.unsubscribe();
   }, []);
 
