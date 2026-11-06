@@ -5,7 +5,8 @@ export interface Usuario {
   id: number;
   email: string;
   nombre: string;
-  rol: 'admin' | 'vendedor';
+  /** admin: ve todo · vendedor: solo Distribuidora · galponero: solo Galpones */
+  rol: 'admin' | 'vendedor' | 'galponero';
 }
 
 export interface Producto {

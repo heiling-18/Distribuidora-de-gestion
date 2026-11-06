@@ -4,27 +4,33 @@ import React, { useState } from 'react';
 import { LogOut, MoreHorizontal, X } from 'lucide-react';
 import { DymsMark } from '@/components/brand/DymsMark';
 import { cn } from '@/components/ui';
-import { MODULOS_BARRA_MOVIL, modulosVisibles, type Modulo } from '@/lib/modulos';
+import { textoRol, type CambioSeccion, type ModuloNav } from '@/lib/modulos';
 import type { UsuarioShell } from './Sidebar';
 
-interface MobileNavProps {
-  moduloActivo: Modulo;
-  onCambiar: (m: Modulo) => void;
+interface MobileNavProps<T extends string> {
+  /** Módulos ya filtrados según el rol */
+  modulos: ModuloNav<T>[];
+  /** Módulos fijos en la barra inferior; el resto va en "Más" */
+  barraMovil: T[];
+  moduloActivo: T;
+  onCambiar: (m: T) => void;
   usuario: UsuarioShell;
   onSalir: () => void;
-  stockBajo: number;
-  cajaAbierta: boolean;
+  avisos?: Partial<Record<T, number>>;
+  /** Indicador a la derecha de la barra superior (p. ej. estado de la caja) */
+  estado?: React.ReactNode;
+  seccion?: string;
+  cambioSeccion?: CambioSeccion;
 }
 
 /** Barra superior + navegación inferior para celular y tablet (< lg) */
-export function MobileNav({ moduloActivo, onCambiar, usuario, onSalir, stockBajo, cajaAbierta }: MobileNavProps) {
+export function MobileNav<T extends string>({ modulos, barraMovil, moduloActivo, onCambiar, usuario, onSalir, avisos, estado, seccion, cambioSeccion }: MobileNavProps<T>) {
   const [masAbierto, setMasAbierto] = useState(false);
-  const modulos = modulosVisibles(usuario.rol === 'admin');
-  const fijos = modulos.filter((m) => MODULOS_BARRA_MOVIL.includes(m.id));
-  const resto = modulos.filter((m) => !MODULOS_BARRA_MOVIL.includes(m.id));
+  const fijos = modulos.filter((m) => barraMovil.includes(m.id));
+  const resto = modulos.filter((m) => !barraMovil.includes(m.id));
   const activoEnMas = resto.some((m) => m.id === moduloActivo);
 
-  const ir = (m: Modulo) => {
+  const ir = (m: T) => {
     onCambiar(m);
     setMasAbierto(false);
   };
@@ -32,25 +38,23 @@ export function MobileNav({ moduloActivo, onCambiar, usuario, onSalir, stockBajo
   return (
     <>
       {/* Barra superior */}
-      <header className="no-print sticky top-0 z-30 flex h-14 items-center justify-between bg-noche px-4 text-crema lg:hidden">
-        <DymsMark tamano={36} className="[&>span:last-child]:text-xl" />
-        <span
-          className={cn(
-            'rounded-lg px-2.5 py-1 text-[13px] font-bold',
-            cajaAbierta ? 'bg-[#23402F] text-[#BFE6CC]' : 'bg-rojo text-white'
-          )}
-        >
-          {cajaAbierta ? 'Caja abierta' : 'Caja cerrada'}
+      <header className="no-print sticky top-0 z-30 flex h-14 items-center justify-between gap-3 bg-noche px-4 text-crema lg:hidden">
+        <span className="flex min-w-0 items-center gap-2.5">
+          <DymsMark tamano={36} className="[&>span:last-child]:text-xl" />
+          {seccion && <span className="truncate text-[13px] font-semibold uppercase tracking-wider text-maiz">{seccion}</span>}
         </span>
+        {estado}
       </header>
 
       {/* Barra inferior */}
       <nav
         aria-label="Principal"
-        className="no-print fixed inset-x-0 bottom-0 z-30 grid h-[68px] grid-cols-5 bg-superficie pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-12px_rgba(23,19,15,0.25)] lg:hidden"
+        style={{ gridTemplateColumns: `repeat(${fijos.length + 1}, minmax(0, 1fr))` }}
+        className="no-print fixed inset-x-0 bottom-0 z-30 grid h-[68px] bg-superficie pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-12px_rgba(23,19,15,0.25)] lg:hidden"
       >
         {fijos.map((m) => {
           const activo = moduloActivo === m.id;
+          const aviso = avisos?.[m.id] ?? 0;
           return (
             <button
               key={m.id}
@@ -64,9 +68,9 @@ export function MobileNav({ moduloActivo, onCambiar, usuario, onSalir, stockBajo
             >
               <m.Icono className="h-[22px] w-[22px]" aria-hidden="true" />
               {m.corto}
-              {m.id === 'inventario' && stockBajo > 0 && (
+              {aviso > 0 && (
                 <span className="absolute right-[calc(50%-20px)] top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-md bg-maiz px-1 text-[11px] font-bold text-noche">
-                  {stockBajo}
+                  {aviso}
                 </span>
               )}
             </button>
@@ -95,7 +99,7 @@ export function MobileNav({ moduloActivo, onCambiar, usuario, onSalir, stockBajo
             <div className="mb-1 flex items-center justify-between">
               <span className="flex flex-col">
                 <strong className="text-base text-tinta">{usuario.nombre}</strong>
-                <span className="text-sm text-tinta-suave">{usuario.rol === 'admin' ? 'Administrador' : 'Vendedor'}</span>
+                <span className="text-sm text-tinta-suave">{textoRol(usuario.rol)}</span>
               </span>
               <button type="button" onClick={() => setMasAbierto(false)} aria-label="Cerrar" className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-control hover:bg-neutro">
                 <X className="h-5 w-5" aria-hidden="true" />
@@ -116,6 +120,19 @@ export function MobileNav({ moduloActivo, onCambiar, usuario, onSalir, stockBajo
                 {m.etiqueta}
               </button>
             ))}
+            {cambioSeccion && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMasAbierto(false);
+                  cambioSeccion.onClick();
+                }}
+                className="mt-1 flex h-12 cursor-pointer items-center gap-3 rounded-control bg-noche px-3 text-base font-semibold text-crema hover:bg-carbon"
+              >
+                <cambioSeccion.Icono className="h-5 w-5" aria-hidden="true" />
+                {cambioSeccion.etiqueta}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {

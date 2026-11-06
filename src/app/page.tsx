@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Egg, Store } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { normalizarCategoria } from '@/lib/categorias';
 import { LoginScreen } from '@/features/auth/LoginScreen';
@@ -8,7 +9,9 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { CajaCerradaBanner } from '@/components/layout/CajaCerradaBanner';
 import { Toasts } from '@/components/layout/Toasts';
-import type { Modulo } from '@/lib/modulos';
+import { MODULOS_BARRA_MOVIL, modulosVisibles, type Modulo } from '@/lib/modulos';
+import type { Seccion } from '@/lib/galpones';
+import { GalponesApp } from '@/features/galpones/GalponesApp';
 import type { CierreCaja, Cliente, Gasto, ItemCarrito, NotificacionVisual, Producto, SesionCaja, Usuario, Venta } from '@/types';
 import { formatoMoneda } from '@/lib/formato';
 import { conLimiteDeTiempo, LIMITE_AVISO_DATOS, LIMITE_LOGIN, LIMITE_PERFIL, TiempoAgotadoError } from '@/lib/tiempo';
@@ -51,8 +54,8 @@ const cargarPerfilUsuario = async (email: string): Promise<Usuario | null> => {
   return {
     id: dbUser.id,
     email: dbUser.email,
-    nombre: dbUser.nombre || (dbUser.rol === 'admin' ? 'Administrador General' : 'Vendedor de Turno'),
-    rol: dbUser.rol === 'admin' ? 'admin' : 'vendedor'
+    nombre: dbUser.nombre || (dbUser.rol === 'admin' ? 'Administrador General' : dbUser.rol === 'galponero' ? 'Encargado de Galpones' : 'Vendedor de Turno'),
+    rol: dbUser.rol === 'admin' ? 'admin' : dbUser.rol === 'galponero' ? 'galponero' : 'vendedor'
   };
 };
 
@@ -60,6 +63,10 @@ export default function DYMSApp() {
   // 1. Sesión y Navegación
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [moduloActivo, setModuloActivo] = useState<Modulo>('dashboard');
+  // Sección de la plataforma (datos separados). El admin elige; los demás tienen una sola.
+  const [seccionElegida, setSeccionElegida] = useState<Seccion>('distribuidora');
+  const seccionActiva: Seccion =
+    usuario?.rol === 'galponero' ? 'galpones' : usuario?.rol === 'admin' ? seccionElegida : 'distribuidora';
 
   // Login
   const [loginEmail, setLoginEmail] = useState('');
@@ -79,13 +86,14 @@ export default function DYMSApp() {
   // 3. Notificaciones Visuales Integradas (Cero alert popup)
   const [notificaciones, setNotificaciones] = useState<NotificacionVisual[]>([]);
 
-  const mostrarNotificacion = (tipo: 'exito' | 'error' | 'advertencia' | 'info', mensaje: string) => {
+  // Estable entre renders: la sección Galpones la usa dentro de efectos
+  const mostrarNotificacion = useCallback((tipo: 'exito' | 'error' | 'advertencia' | 'info', mensaje: string) => {
     const id = Date.now() + Math.random();
     setNotificaciones(prev => [...prev.slice(-3), { id, tipo, mensaje }]);
     setTimeout(() => {
       setNotificaciones(prev => prev.filter(n => n.id !== id));
     }, 4500);
-  };
+  }, []);
 
   // 4. Modales de Confirmación In-App (Cero window.confirm o window.prompt)
   const [gastoAEliminar, setGastoAEliminar] = useState<Gasto | null>(null);
@@ -324,8 +332,9 @@ export default function DYMSApp() {
   // 3. Cargar Datos Globales solo con sesión iniciada (RLS bloquea a usuarios anónimos)
   useEffect(() => {
     // Carga intencional al iniciar sesión (RLS no deja leer sin usuario)
+    // El encargado de galpones no tiene acceso a los datos de la Distribuidora
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (usuario) cargarDatosGenerales();
+    if (usuario && usuario.rol !== 'galponero') cargarDatosGenerales();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario?.email]);
 
@@ -398,6 +407,7 @@ export default function DYMSApp() {
     await supabase.auth.signOut();
     setUsuario(null);
     setCarrito([]);
+    setSeccionElegida('distribuidora');
     mostrarNotificacion('info', 'Has cerrado tu sesión.');
   };
 
@@ -1264,10 +1274,34 @@ ${detalle}
   }
 
   // ==========================================
-  // VISTA PRINCIPAL CON NAVEGACIÓN
+  // SECCIÓN GALPONES (src/features/galpones) — datos aparte (tablas gal_*)
+  // ==========================================
+  if (seccionActiva === 'galpones') {
+    return (
+      <>
+        <Toasts
+          notificaciones={notificaciones}
+          onCerrar={(id) => setNotificaciones(prev => prev.filter(item => item.id !== id))}
+        />
+        <GalponesApp
+          usuario={usuario}
+          onSalir={handleLogout}
+          notificar={mostrarNotificacion}
+          cambioSeccion={usuario.rol === 'admin' ? { etiqueta: 'Ir a Distribuidora', Icono: Store, onClick: () => setSeccionElegida('distribuidora') } : undefined}
+        />
+      </>
+    );
+  }
+
+  // ==========================================
+  // VISTA PRINCIPAL CON NAVEGACIÓN (DISTRIBUIDORA)
   // ==========================================
   const stockBajo = productos.filter(p => p.stock <= p.stock_minimo).length;
   const cajaAbierta = cajaActual?.estado === 'abierta';
+  const modulosDistribuidora = modulosVisibles(usuario.rol === 'admin');
+  const irAGalpones = usuario.rol === 'admin'
+    ? { etiqueta: 'Ir a Galpones', Icono: Egg, onClick: () => setSeccionElegida('galpones') }
+    : undefined;
 
   return (
     <div className="min-h-dvh bg-papel text-tinta lg:flex">
@@ -1279,22 +1313,32 @@ ${detalle}
 
       {/* Menú lateral (escritorio) */}
       <Sidebar
+        modulos={modulosDistribuidora}
         moduloActivo={moduloActivo}
         onCambiar={setModuloActivo}
         usuario={usuario}
         onSalir={handleLogout}
-        stockBajo={stockBajo}
+        avisos={{ inventario: stockBajo }}
+        seccion={irAGalpones ? 'Distribuidora' : undefined}
+        cambioSeccion={irAGalpones}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Barra superior e inferior (celular y tablet) */}
         <MobileNav
+          modulos={modulosDistribuidora}
+          barraMovil={MODULOS_BARRA_MOVIL}
           moduloActivo={moduloActivo}
           onCambiar={setModuloActivo}
           usuario={usuario}
           onSalir={handleLogout}
-          stockBajo={stockBajo}
-          cajaAbierta={cajaAbierta}
+          avisos={{ inventario: stockBajo }}
+          cambioSeccion={irAGalpones}
+          estado={
+            <span className={cajaAbierta ? 'rounded-lg bg-[#23402F] px-2.5 py-1 text-[13px] font-bold text-[#BFE6CC]' : 'rounded-lg bg-rojo px-2.5 py-1 text-[13px] font-bold text-white'}>
+              {cajaAbierta ? 'Caja abierta' : 'Caja cerrada'}
+            </span>
+          }
         />
 
         {/* Aviso de caja cerrada */}
