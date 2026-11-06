@@ -2,6 +2,25 @@ import { BarChart3, DollarSign, House, Layers, Receipt, ShoppingCart, Users, Wal
 
 export type Modulo = 'dashboard' | 'pos' | 'ventas' | 'inventario' | 'caja' | 'clientes' | 'gastos' | 'reportes';
 
+/** Entrada del menú de cualquier sección (Distribuidora o Galpones) */
+export interface ModuloNav<T extends string = string> {
+  id: T;
+  etiqueta: string;
+  corto: string;
+  Icono: LucideIcon;
+  soloAdmin?: boolean;
+}
+
+/** Botón del menú para pasar a la otra sección (solo el administrador) */
+export interface CambioSeccion {
+  etiqueta: string;
+  Icono: LucideIcon;
+  onClick: () => void;
+}
+
+export const textoRol = (rol: string) =>
+  rol === 'admin' ? 'Administrador' : rol === 'galponero' ? 'Galpones' : 'Vendedor';
+
 export interface ModuloInfo {
   id: Modulo;
   etiqueta: string;
