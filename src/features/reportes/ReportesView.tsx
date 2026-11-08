@@ -180,12 +180,12 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
       {/* Totales de todos los meses */}
       <section aria-labelledby="titulo-historico" className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h2 id="titulo-historico" className="text-xl font-bold text-tinta">Desde el inicio</h2>
-          <span className="text-[15px] text-tinta-suave">Todos los meses, desde {nombreMes(primerMes)}</span>
+          <h2 id="titulo-historico" className="text-xl font-bold text-tinta">Ventas totales</h2>
+          <span className="text-[15px] text-tinta-suave">Todos los meses</span>
         </div>
         <div className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-3">
           <StatCard
-            etiqueta="Ventas totales"
+            etiqueta="Total vendido"
             valor={formatoMoneda(historico.total)}
             detalle={`${historico.cantidad} ventas · ${historico.anuladas} anuladas`}
           />
