@@ -12,7 +12,7 @@ import { Toasts } from '@/components/layout/Toasts';
 import { MODULOS_BARRA_MOVIL, modulosVisibles, type Modulo } from '@/lib/modulos';
 import type { Seccion } from '@/lib/galpones';
 import { GalponesApp } from '@/features/galpones/GalponesApp';
-import type { CierreCaja, Cliente, Gasto, ItemCarrito, NotificacionVisual, Producto, SesionCaja, Usuario, Venta } from '@/types';
+import type { CierreCaja, CierreMensual, Cliente, Gasto, ItemCarrito, NotificacionVisual, Producto, SesionCaja, Usuario, Venta } from '@/types';
 import { formatoMoneda } from '@/lib/formato';
 import { conLimiteDeTiempo, LIMITE_AVISO_DATOS, LIMITE_LOGIN, LIMITE_PERFIL, TiempoAgotadoError } from '@/lib/tiempo';
 import { CargandoModulo, ConfirmDialog } from '@/components/ui';
@@ -21,6 +21,7 @@ import { ClienteFormModal } from '@/features/clientes/ClienteFormModal';
 import { GastosView } from '@/features/gastos/GastosView';
 import { GastoFormModal } from '@/features/gastos/GastoFormModal';
 import { ReportesView } from '@/features/reportes/ReportesView';
+import { claveMes, nombreMes } from '@/features/reportes/meses';
 import { DashboardView } from '@/features/dashboard/DashboardView';
 import { InventarioView } from '@/features/inventario/InventarioView';
 import { AlertasStockModal } from '@/features/inventario/AlertasStockModal';
@@ -82,6 +83,7 @@ export default function DYMSApp() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [cajaActual, setCajaActual] = useState<SesionCaja | null>(null);
   const [historialCierres, setHistorialCierres] = useState<CierreCaja[]>([]);
+  const [cierresMensuales, setCierresMensuales] = useState<CierreMensual[]>([]);
 
   // 3. Notificaciones Visuales Integradas (Cero alert popup)
   const [notificaciones, setNotificaciones] = useState<NotificacionVisual[]>([]);
@@ -320,6 +322,10 @@ export default function DYMSApp() {
         setHistorialCierres([]);
         localStorage.removeItem('dyms_cierres');
       }
+
+      // 7. Cierres de mes (RLS: solo el admin los ve; al vendedor le llega vacío)
+      const { data: mensuales } = await supabase.from('cierres_mensuales').select('*').order('mes', { ascending: false });
+      setCierresMensuales(mensuales || []);
 
     } catch (e) {
       console.error('Error cargando datos de Supabase:', e);
@@ -743,6 +749,10 @@ export default function DYMSApp() {
       mostrarNotificacion('advertencia', 'Esta venta ya se encuentra anulada.');
       return;
     }
+    if (cierresMensuales.some(c => c.mes === claveMes(venta.fecha))) {
+      mostrarNotificacion('advertencia', 'El mes de esta venta ya está cerrado; no se puede anular.');
+      return;
+    }
     setVentaAAnular(venta);
     setMotivoAnulacionInput('Devolución de cliente');
   };
@@ -787,6 +797,20 @@ export default function DYMSApp() {
     } finally {
       setProcesandoAnulacion(false);
     }
+  };
+
+  // Cierre de mes: los totales los calcula la base de datos (función cerrar_mes)
+  const handleCerrarMes = async (mes: string): Promise<CierreMensual | null> => {
+    if (usuario?.rol !== 'admin') return null;
+    const { data, error } = await supabase.rpc('cerrar_mes', { p_mes: mes });
+    if (error || !data) {
+      mostrarNotificacion('error', 'No se pudo cerrar el mes: ' + (error?.message || 'sin respuesta'));
+      return null;
+    }
+    const cierre = data as CierreMensual;
+    setCierresMensuales(prev => [cierre, ...prev.filter(c => c.mes !== cierre.mes)]);
+    mostrarNotificacion('exito', `Se cerró ${nombreMes(cierre.mes)}.`);
+    return cierre;
   };
 
   // ==========================================
@@ -1504,9 +1528,13 @@ ${detalle}
         {moduloActivo === 'reportes' && usuario.rol === 'admin' && (
           <ReportesView
             ventas={ventas}
+            gastos={gastos}
+            cierres={cierresMensuales}
             tipoPrecio={determinarTipoPrecioVenta}
             onExportar={() => exportarVentasExcel(false)}
             onVerTicket={verTicketDeVenta}
+            onCerrarMes={handleCerrarMes}
+            telefonoDueno={telefonoAdmin}
           />
         )}
         </>
