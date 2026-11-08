@@ -99,6 +99,24 @@ export interface CierreCaja {
   hora_cierre: string;
 }
 
+/** Fila de cierres_mensuales (acta del mes, solo admin) */
+export interface CierreMensual {
+  id: number;
+  /** Primer día del mes, "2026-10-01" */
+  mes: string;
+  total_ventas: number;
+  ventas_efectivo: number;
+  ventas_transferencia: number;
+  ganancia_bruta: number;
+  total_gastos: number;
+  utilidad_neta: number;
+  num_ventas: number;
+  num_anuladas: number;
+  unidades_vendidas: number;
+  cerrado_por: string;
+  cerrado_en: string;
+}
+
 export interface NotificacionVisual {
   id: number;
   tipo: 'exito' | 'error' | 'advertencia' | 'info';

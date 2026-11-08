@@ -1,29 +1,65 @@
-import React, { useMemo } from 'react';
-import { Download, Receipt } from 'lucide-react';
-import { Badge, Button, EmptyState, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
+import React, { useMemo, useState } from 'react';
+import { Download, Lock, Receipt } from 'lucide-react';
+import { Badge, Button, ConfirmDialog, EmptyState, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoFecha, formatoMoneda } from '@/lib/formato';
-import type { Venta } from '@/types';
+import type { CierreMensual, Gasto, Venta } from '@/types';
+import { ComprobanteMesModal } from './ComprobanteMesModal';
+import { MESES, MESES_LARGOS, claveMes, nombreMes } from './meses';
 
 interface ReportesViewProps {
   ventas: Venta[];
+  gastos: Gasto[];
+  cierres: CierreMensual[];
   tipoPrecio: (v: Venta) => 'detal' | 'mayorista';
   onExportar: () => void;
   onVerTicket: (v: Venta) => void;
+  /** Cierra un mes ya terminado ("2026-10-01"); devuelve el acta, o null si falló */
+  onCerrarMes: (mes: string) => Promise<CierreMensual | null>;
+  telefonoDueno: string;
 }
 
-const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+/** Totales de un mes con las ventas y gastos cargados (sin anuladas) */
+function calcularMes(ventas: Venta[], gastos: Gasto[], clave: string) {
+  const delMes = ventas.filter((v) => claveMes(v.fecha) === clave);
+  const validas = delMes.filter((v) => v.estado !== 'anulada');
+  const total = validas.reduce((acc, v) => acc + (Number(v.total_venta) || 0), 0);
+  const ganancia = validas.reduce((acc, v) => acc + (Number(v.ganancia_bruta) || 0), 0);
+  const totalGastos = gastos.filter((g) => claveMes(g.fecha) === clave).reduce((acc, g) => acc + (Number(g.monto) || 0), 0);
+  return { total, ganancia, gastos: totalGastos, utilidad: ganancia - totalGastos, cantidad: validas.length, anuladas: delMes.length - validas.length };
+}
 
-export function ReportesView({ ventas, tipoPrecio, onExportar, onVerTicket }: ReportesViewProps) {
-  const resumen = useMemo(() => {
-    const validas = ventas.filter((v) => v.estado !== 'anulada');
-    return {
-      total: validas.reduce((acc, v) => acc + (Number(v.total_venta) || 0), 0),
-      ganancia: validas.reduce((acc, v) => acc + (Number(v.ganancia_bruta) || 0), 0),
-      cantidad: validas.length,
-      anuladas: ventas.length - validas.length,
-    };
-  }, [ventas]);
+export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, onVerTicket, onCerrarMes, telefonoDueno }: ReportesViewProps) {
+  const [mesACerrar, setMesACerrar] = useState<string | null>(null);
+  const [cerrando, setCerrando] = useState(false);
+  const [acta, setActa] = useState<CierreMensual | null>(null);
+
+  // El saldo arranca en 0 cada mes: el resumen solo cuenta el mes en curso
+  const mesActual = claveMes(new Date());
+  const resumen = useMemo(() => calcularMes(ventas, gastos, mesActual), [ventas, gastos, mesActual]);
+
+  // Meses que ya terminaron y tuvieron movimiento, cerrados o por cerrar (el más reciente primero)
+  const mesesCierre = useMemo(() => {
+    const claves = new Set<string>(cierres.map((c) => c.mes));
+    for (const v of ventas) claves.add(claveMes(v.fecha));
+    for (const g of gastos) claves.add(claveMes(g.fecha));
+    return [...claves]
+      .filter((c) => c < mesActual)
+      .sort((a, b) => b.localeCompare(a))
+      .map((clave) => ({ clave, cierre: cierres.find((c) => c.mes === clave) ?? null, calculado: calcularMes(ventas, gastos, clave) }));
+  }, [ventas, gastos, cierres, mesActual]);
+
+  const previa = mesACerrar ? calcularMes(ventas, gastos, mesACerrar) : null;
+
+  const confirmarCierre = async () => {
+    if (!mesACerrar || cerrando) return;
+    setCerrando(true);
+    const nueva = await onCerrarMes(mesACerrar);
+    setCerrando(false);
+    if (nueva) {
+      setMesACerrar(null);
+      setActa(nueva);
+    }
+  };
 
   // Ventas de los últimos 12 meses (sin anuladas), el mes actual al final
   const mensual = useMemo(() => {
@@ -64,11 +100,20 @@ export function ReportesView({ ventas, tipoPrecio, onExportar, onVerTicket }: Re
         }
       />
 
-      <section aria-label="Resumen histórico" className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-3">
-        <StatCard tono="oscuro" etiqueta="Ventas registradas" valor={formatoMoneda(resumen.total)} detalle={`${resumen.cantidad} ventas · ${resumen.anuladas} anuladas`} />
-        <StatCard etiqueta="Ganancia bruta" valor={formatoMoneda(resumen.ganancia)} detalle="Precio de venta menos costo" />
+      <section aria-label="Resumen del mes" className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-3">
         <StatCard
-          etiqueta="Margen promedio"
+          tono="oscuro"
+          etiqueta={`Ventas de ${nombreMes(mesActual)}`}
+          valor={formatoMoneda(resumen.total)}
+          detalle={`${resumen.cantidad} ventas · ${resumen.anuladas} anuladas · arranca en 0 cada mes`}
+        />
+        <StatCard
+          etiqueta="Ganancia bruta del mes"
+          valor={formatoMoneda(resumen.ganancia)}
+          detalle={`Gastos ${formatoMoneda(resumen.gastos)} · utilidad ${formatoMoneda(resumen.utilidad)}`}
+        />
+        <StatCard
+          etiqueta="Margen del mes"
           valor={resumen.total > 0 ? `${((resumen.ganancia / resumen.total) * 100).toFixed(1).replace('.', ',')} %` : '—'}
           detalle="Sobre el total vendido"
         />
@@ -121,6 +166,89 @@ export function ReportesView({ ventas, tipoPrecio, onExportar, onVerTicket }: Re
           })}
         </div>
       </Panel>
+
+      {/* Cierres de mes */}
+      <Panel>
+        <div className="flex flex-col gap-1 px-6 pb-2 pt-5">
+          <h2 className="text-xl font-bold text-tinta">Cierres de mes</h2>
+          <span className="text-sm text-tinta-suave">Al cerrar un mes queda guardado su resumen y ya no se pueden anular sus ventas ni cambiar sus gastos</span>
+        </div>
+        {mesesCierre.length === 0 ? (
+          <EmptyState className="m-6" titulo="Aún no hay meses para cerrar" descripcion="Cuando termine el mes, aquí podrás cerrarlo y guardar su resumen." />
+        ) : (
+          <Tabla minAncho={760}>
+            <thead>
+              <tr>
+                <Th>Mes</Th>
+                <Th alinear="der">Vendido</Th>
+                <Th alinear="der">Utilidad</Th>
+                <Th>Estado</Th>
+                <Th alinear="der"><span className="sr-only">Acción</span></Th>
+              </tr>
+            </thead>
+            <tbody>
+              {mesesCierre.map(({ clave, cierre, calculado }) => (
+                <Fila key={clave}>
+                  <Td className="font-semibold capitalize">{nombreMes(clave)}</Td>
+                  <Td alinear="der" className="whitespace-nowrap font-bold tabular">{formatoMoneda(cierre ? cierre.total_ventas : calculado.total)}</Td>
+                  <Td alinear="der" className="whitespace-nowrap tabular">{formatoMoneda(cierre ? cierre.utilidad_neta : calculado.utilidad)}</Td>
+                  <Td>
+                    {cierre ? (
+                      <span className="flex flex-col items-start gap-1">
+                        <Badge tono="exito">Cerrado</Badge>
+                        <span className="text-[13px] text-tinta-suave">{cierre.cerrado_por} · {formatoFecha(cierre.cerrado_en)}</span>
+                      </span>
+                    ) : (
+                      <Badge tono="aviso">Por cerrar</Badge>
+                    )}
+                  </Td>
+                  <Td alinear="der">
+                    {cierre ? (
+                      <Button variante="fantasma" tamano="sm" onClick={() => setActa(cierre)}>
+                        <Receipt className="h-4 w-4" aria-hidden="true" />
+                        Ver resumen
+                      </Button>
+                    ) : (
+                      <Button tamano="sm" onClick={() => setMesACerrar(clave)}>
+                        <Lock className="h-4 w-4" aria-hidden="true" />
+                        Cerrar mes
+                      </Button>
+                    )}
+                  </Td>
+                </Fila>
+              ))}
+            </tbody>
+          </Tabla>
+        )}
+      </Panel>
+
+      {mesACerrar && previa && (
+        <ConfirmDialog
+          titulo={`¿Cerrar ${nombreMes(mesACerrar)}?`}
+          textoConfirmar="Sí, cerrar el mes"
+          cargando={cerrando}
+          onConfirmar={confirmarCierre}
+          onCancelar={() => setMesACerrar(null)}
+        >
+          <dl className="flex flex-col rounded-campo bg-hundido px-4 py-2">
+            {[
+              ['Vendido', formatoMoneda(previa.total)],
+              ['Ganancia bruta', formatoMoneda(previa.ganancia)],
+              ['Gastos', formatoMoneda(previa.gastos)],
+              ['Utilidad', formatoMoneda(previa.utilidad)],
+              ['Ventas', `${previa.cantidad} · ${previa.anuladas} anuladas`],
+            ].map(([etiqueta, valor]) => (
+              <div key={etiqueta} className="flex justify-between gap-4 py-1.5">
+                <dt className="text-tinta-suave">{etiqueta}</dt>
+                <dd className="font-semibold tabular">{valor}</dd>
+              </div>
+            ))}
+          </dl>
+          <p>Después de cerrarlo no se podrán anular ventas ni cambiar gastos de ese mes. Esto no se puede deshacer.</p>
+        </ConfirmDialog>
+      )}
+
+      {acta && <ComprobanteMesModal cierre={acta} telefonoDueno={telefonoDueno} onCerrar={() => setActa(null)} />}
 
       <Panel>
         <div className="flex flex-wrap items-baseline justify-between gap-2 px-6 pb-2 pt-5">
