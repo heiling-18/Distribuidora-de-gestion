@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Download, Lock, Receipt } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Lock, Receipt } from 'lucide-react';
 import { Badge, Button, ConfirmDialog, EmptyState, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoFecha, formatoMoneda } from '@/lib/formato';
 import type { CierreMensual, Gasto, Venta } from '@/types';
 import { ComprobanteMesModal } from './ComprobanteMesModal';
-import { MESES, MESES_LARGOS, claveMes, nombreMes } from './meses';
+import { MESES, MESES_LARGOS, claveMes, mesDesplazado, nombreMes } from './meses';
 
 interface ReportesViewProps {
   ventas: Venta[];
@@ -33,9 +33,31 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
   const [cerrando, setCerrando] = useState(false);
   const [acta, setActa] = useState<CierreMensual | null>(null);
 
-  // El saldo arranca en 0 cada mes: el resumen solo cuenta el mes en curso
+  // El saldo arranca en 0 cada mes: el resumen muestra el mes en curso, y con las flechas se ven los anteriores
   const mesActual = claveMes(new Date());
-  const resumen = useMemo(() => calcularMes(ventas, gastos, mesActual), [ventas, gastos, mesActual]);
+  const [mesVisto, setMesVisto] = useState(mesActual);
+  const resumen = useMemo(() => calcularMes(ventas, gastos, mesVisto), [ventas, gastos, mesVisto]);
+  const cierreVisto = cierres.find((c) => c.mes === mesVisto);
+
+  // Primer mes con movimiento: hasta ahí deja retroceder la flecha
+  const primerMes = useMemo(() => {
+    let primero = mesActual;
+    for (const v of ventas) primero = claveMes(v.fecha) < primero ? claveMes(v.fecha) : primero;
+    for (const g of gastos) primero = claveMes(g.fecha) < primero ? claveMes(g.fecha) : primero;
+    return primero;
+  }, [ventas, gastos, mesActual]);
+
+  // Totales desde el inicio (todos los meses, sin anuladas)
+  const historico = useMemo(() => {
+    const validas = ventas.filter((v) => v.estado !== 'anulada');
+    const total = validas.reduce((acc, v) => acc + (Number(v.total_venta) || 0), 0);
+    const ganancia = validas.reduce((acc, v) => acc + (Number(v.ganancia_bruta) || 0), 0);
+    const totalGastos = gastos.reduce((acc, g) => acc + (Number(g.monto) || 0), 0);
+    return { total, ganancia, gastos: totalGastos, utilidad: ganancia - totalGastos, cantidad: validas.length, anuladas: ventas.length - validas.length };
+  }, [ventas, gastos]);
+
+  const margen = (ganancia: number, total: number) =>
+    total > 0 ? `${((ganancia / total) * 100).toFixed(1).replace('.', ',')} %` : '—';
 
   // Meses que ya terminaron y tuvieron movimiento, cerrados o por cerrar (el más reciente primero)
   const mesesCierre = useMemo(() => {
@@ -100,23 +122,80 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
         }
       />
 
-      <section aria-label="Resumen del mes" className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-3">
-        <StatCard
-          tono="oscuro"
-          etiqueta={`Ventas de ${nombreMes(mesActual)}`}
-          valor={formatoMoneda(resumen.total)}
-          detalle={`${resumen.cantidad} ventas · ${resumen.anuladas} anuladas · arranca en 0 cada mes`}
-        />
-        <StatCard
-          etiqueta="Ganancia bruta del mes"
-          valor={formatoMoneda(resumen.ganancia)}
-          detalle={`Gastos ${formatoMoneda(resumen.gastos)} · utilidad ${formatoMoneda(resumen.utilidad)}`}
-        />
-        <StatCard
-          etiqueta="Margen del mes"
-          valor={resumen.total > 0 ? `${((resumen.ganancia / resumen.total) * 100).toFixed(1).replace('.', ',')} %` : '—'}
-          detalle="Sobre el total vendido"
-        />
+      {/* Resumen de un mes, con flechas para ir a los anteriores */}
+      <section aria-labelledby="titulo-resumen-mes" className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="titulo-resumen-mes" className="text-xl font-bold text-tinta">Resumen del mes</h2>
+          <div className="flex items-center gap-1.5">
+            {mesVisto !== mesActual && (
+              <Button variante="fantasma" tamano="sm" onClick={() => setMesVisto(mesActual)} className="mr-1">
+                Mes actual
+              </Button>
+            )}
+            <Button
+              variante="secundario"
+              tamano="sm"
+              aria-label="Mes anterior"
+              title="Mes anterior"
+              disabled={mesVisto <= primerMes}
+              onClick={() => setMesVisto((m) => mesDesplazado(m, -1))}
+              className="px-2.5"
+            >
+              <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+            </Button>
+            <span aria-live="polite" className="min-w-[150px] text-center text-base font-bold capitalize text-tinta tabular">
+              {nombreMes(mesVisto)}
+            </span>
+            <Button
+              variante="secundario"
+              tamano="sm"
+              aria-label="Mes siguiente"
+              title="Mes siguiente"
+              disabled={mesVisto >= mesActual}
+              onClick={() => setMesVisto((m) => mesDesplazado(m, 1))}
+              className="px-2.5"
+            >
+              <ChevronRight className="h-5 w-5" aria-hidden="true" />
+            </Button>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-3">
+          <StatCard
+            tono="oscuro"
+            etiqueta={`Ventas de ${nombreMes(mesVisto)}`}
+            valor={formatoMoneda(resumen.total)}
+            detalle={`${resumen.cantidad} ventas · ${resumen.anuladas} anuladas · ${
+              mesVisto === mesActual ? 'arranca en 0 cada mes' : cierreVisto ? 'mes cerrado' : 'mes por cerrar'
+            }`}
+          />
+          <StatCard
+            etiqueta="Ganancia bruta del mes"
+            valor={formatoMoneda(resumen.ganancia)}
+            detalle={`Gastos ${formatoMoneda(resumen.gastos)} · utilidad ${formatoMoneda(resumen.utilidad)}`}
+          />
+          <StatCard etiqueta="Margen del mes" valor={margen(resumen.ganancia, resumen.total)} detalle="Sobre el total vendido" />
+        </div>
+      </section>
+
+      {/* Totales de todos los meses */}
+      <section aria-labelledby="titulo-historico" className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 id="titulo-historico" className="text-xl font-bold text-tinta">Desde el inicio</h2>
+          <span className="text-[15px] text-tinta-suave">Todos los meses, desde {nombreMes(primerMes)}</span>
+        </div>
+        <div className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-3">
+          <StatCard
+            etiqueta="Ventas totales"
+            valor={formatoMoneda(historico.total)}
+            detalle={`${historico.cantidad} ventas · ${historico.anuladas} anuladas`}
+          />
+          <StatCard
+            etiqueta="Ganancia bruta total"
+            valor={formatoMoneda(historico.ganancia)}
+            detalle={`Gastos ${formatoMoneda(historico.gastos)} · utilidad ${formatoMoneda(historico.utilidad)}`}
+          />
+          <StatCard etiqueta="Margen promedio" valor={margen(historico.ganancia, historico.total)} detalle="Sobre todo lo vendido" />
+        </div>
       </section>
 
       {/* Gráfica de ventas por mes */}

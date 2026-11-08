@@ -37,7 +37,7 @@ export const MODULOS: ModuloInfo[] = [
   { id: 'inventario', etiqueta: 'Inventario', corto: 'Inventario', Icono: Layers },
   { id: 'caja', etiqueta: 'Caja', corto: 'Caja', Icono: Wallet },
   { id: 'clientes', etiqueta: 'Clientes', corto: 'Clientes', Icono: Users },
-  { id: 'gastos', etiqueta: 'Gastos', corto: 'Gastos', Icono: DollarSign, soloAdmin: true },
+  { id: 'gastos', etiqueta: 'Egresos', corto: 'Egresos', Icono: DollarSign, soloAdmin: true },
   { id: 'reportes', etiqueta: 'Reportes', corto: 'Reportes', Icono: BarChart3, soloAdmin: true },
 ];
 
