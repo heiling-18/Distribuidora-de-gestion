@@ -7,6 +7,12 @@ export function claveMes(fecha: string | Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
 
+/** Mueve un mes n meses: ("2026-01-01", -1) → "2025-12-01" */
+export function mesDesplazado(clave: string, n: number) {
+  const [anio, mes] = clave.split('-').map(Number);
+  return claveMes(new Date(anio, mes - 1 + n, 1));
+}
+
 /** "2026-10-01" → "octubre 2026" (se lee a mano para no correr el día por la zona horaria) */
 export function nombreMes(clave: string) {
   const [anio, mes] = clave.split('-').map(Number);
