@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Download, Plus, RefreshCw } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Download, Plus, RefreshCw } from 'lucide-react';
 import { Badge, Button, EmptyState, Fila, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
 import type { Producto, Venta } from '@/types';
@@ -15,6 +15,8 @@ interface DashboardViewProps {
     efectivoHoy: number;
     transferenciaHoy: number;
     dineroEnCaja: number;
+    /** Todos los meses: ventas (sin anuladas) menos todos los gastos */
+    acumulado: { efectivo: number; transferencia: number; gastos: number; total: number };
     efectivoEnCaja: number;
     gastosHoy: number;
     inversion: number;
@@ -34,6 +36,54 @@ interface DashboardViewProps {
 }
 
 const DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+/** Cajón de dinero que se desliza (o con las flechas) entre el dinero de hoy y el total de todos los meses */
+function DineroEnCaja({ hoy, total }: { hoy: React.ReactNode; total: React.ReactNode }) {
+  const pista = useRef<HTMLDivElement>(null);
+  const [vista, setVista] = useState(0);
+
+  if (!total) return <>{hoy}</>;
+
+  const ir = (i: number) => {
+    const el = pista.current;
+    if (el) el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
+  };
+
+  return (
+    <div className="relative bg-superficie">
+      <div
+        ref={pista}
+        onScroll={(e) => setVista(Math.round(e.currentTarget.scrollLeft / Math.max(1, e.currentTarget.clientWidth)))}
+        className="flex h-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <div className="w-full shrink-0 snap-start" aria-hidden={vista !== 0}>{hoy}</div>
+        <div className="w-full shrink-0 snap-start" aria-hidden={vista !== 1}>{total}</div>
+      </div>
+      <div className="absolute inset-x-6 bottom-3.5 flex items-center justify-between">
+        <div className="flex gap-1.5">
+          {['Ver dinero de hoy', 'Ver dinero total de todos los meses'].map((etiqueta, i) => (
+            <button
+              key={etiqueta}
+              type="button"
+              aria-label={etiqueta}
+              aria-current={vista === i}
+              onClick={() => ir(i)}
+              className={cn('h-2 cursor-pointer rounded-full transition-all', vista === i ? 'w-5 bg-rojo' : 'w-2 bg-neutro-hover hover:bg-tinta-tenue')}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => ir(vista === 0 ? 1 : 0)}
+          aria-label={vista === 0 ? 'Ver dinero total de todos los meses' : 'Ver dinero de hoy'}
+          className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-tinta-suave hover:bg-neutro hover:text-tinta"
+        >
+          {vista === 0 ? <ChevronRight className="h-5 w-5" aria-hidden="true" /> : <ChevronLeft className="h-5 w-5" aria-hidden="true" />}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function saludo() {
   const h = new Date().getHours();
@@ -113,10 +163,25 @@ export function DashboardView(p: DashboardViewProps) {
           valor={formatoMoneda(vendidoHoy)}
           detalle={`Efectivo ${formatoMoneda(p.totales.efectivoHoy)} · Transferencia ${formatoMoneda(p.totales.transferenciaHoy)}`}
         />
-        <StatCard
-          etiqueta="Dinero en caja"
-          valor={formatoMoneda(p.totales.dineroEnCaja)}
-          detalle={`Efectivo ${formatoMoneda(p.totales.efectivoEnCaja)} · gastos ${formatoMoneda(p.totales.gastosHoy)}`}
+        <DineroEnCaja
+          hoy={
+            <StatCard
+              etiqueta="Dinero en caja"
+              valor={formatoMoneda(p.totales.dineroEnCaja)}
+              detalle={`Efectivo ${formatoMoneda(p.totales.efectivoEnCaja)} · gastos ${formatoMoneda(p.totales.gastosHoy)}`}
+              className="h-full pb-11"
+            />
+          }
+          total={
+            p.esAdmin ? (
+              <StatCard
+                etiqueta="Dinero total · todos los meses"
+                valor={formatoMoneda(p.totales.acumulado.total)}
+                detalle={`Vendido ${formatoMoneda(p.totales.acumulado.efectivo + p.totales.acumulado.transferencia)} · gastos ${formatoMoneda(p.totales.acumulado.gastos)}`}
+                className="h-full pb-11"
+              />
+            ) : null
+          }
         />
         
         {/* Total Inventario al Precio del Excel (Precio Venta Detal) */}
