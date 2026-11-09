@@ -450,6 +450,15 @@ export default function DYMSApp() {
     return base + totalVentasEfectivoHoy + totalVentasTransfHoy - totalGastosHoy;
   }, [cajaActual, totalVentasEfectivoHoy, totalVentasTransfHoy, totalGastosHoy]);
 
+  // Dinero acumulado de todos los meses: ventas (efectivo + transferencia, sin anuladas) menos todos los gastos
+  const dineroAcumulado = useMemo(() => {
+    const validas = ventas.filter(v => v.estado !== 'anulada');
+    const efectivo = validas.filter(v => v.metodo_pago === 'efectivo').reduce((acc, v) => acc + (Number(v.total_venta) || 0), 0);
+    const transferencia = validas.filter(v => v.metodo_pago === 'transferencia').reduce((acc, v) => acc + (Number(v.total_venta) || 0), 0);
+    const totalGastos = gastos.reduce((acc, g) => acc + (Number(g.monto) || 0), 0);
+    return { efectivo, transferencia, gastos: totalGastos, total: efectivo + transferencia - totalGastos };
+  }, [ventas, gastos]);
+
   // Inversión Total en Inventario (Costo de Compra)
   const valorTotalInversion = useMemo(() => {
     return productos.reduce((acc, p) => acc + (p.stock * p.precio_compra), 0);
@@ -1386,6 +1395,7 @@ ${detalle}
               efectivoHoy: totalVentasEfectivoHoy,
               transferenciaHoy: totalVentasTransfHoy,
               dineroEnCaja: dineroTotalDisponibleEnCaja,
+              acumulado: dineroAcumulado,
               efectivoEnCaja: efectivoFisicoEnCaja,
               gastosHoy: totalGastosHoy,
               inversion: valorTotalInversion,
