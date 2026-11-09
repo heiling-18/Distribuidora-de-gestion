@@ -173,14 +173,12 @@ export function DashboardView(p: DashboardViewProps) {
             />
           }
           total={
-            p.esAdmin ? (
-              <StatCard
-                etiqueta="Dinero total · todos los meses"
-                valor={formatoMoneda(p.totales.acumulado.total)}
-                detalle={`Vendido ${formatoMoneda(p.totales.acumulado.efectivo + p.totales.acumulado.transferencia)} · gastos ${formatoMoneda(p.totales.acumulado.gastos)}`}
-                className="h-full pb-11"
-              />
-            ) : null
+            <StatCard
+              etiqueta="Dinero total · todos los meses"
+              valor={formatoMoneda(p.totales.acumulado.total)}
+              detalle={`Vendido ${formatoMoneda(p.totales.acumulado.efectivo + p.totales.acumulado.transferencia)} · gastos ${formatoMoneda(p.totales.acumulado.gastos)}`}
+              className="h-full pb-11"
+            />
           }
         />
         
