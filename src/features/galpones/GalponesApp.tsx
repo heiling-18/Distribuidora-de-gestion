@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { MobileNav } from '@/components/layout/MobileNav';
-import { Alert, CargandoModulo, ConfirmDialog } from '@/components/ui';
+import { CargandoModulo, ConfirmDialog } from '@/components/ui';
+import { mensajeDeError } from '@/lib/api/cliente';
+import { galponesApi } from '@/lib/api/servicios';
 import type { CambioSeccion } from '@/lib/modulos';
-import type { Usuario } from '@/types';
+import type { Galpon as GalponApi, RegistroGalpon as RegistroApi, Usuario } from '@/types/api';
 import {
   MODULOS_GALPONES,
   formatoDia,
@@ -30,24 +31,43 @@ interface GalponesAppProps {
   cambioSeccion?: CambioSeccion;
 }
 
-/** Normaliza numéricos que Supabase devuelve como texto (numeric) */
-const aGalpon = (g: Galpon): Galpon => ({
-  ...g,
-  aves_iniciales: Number(g.aves_iniciales),
-  edad_semanas_llegada: Number(g.edad_semanas_llegada),
-  gramos_ave_dia: Number(g.gramos_ave_dia),
+// Las vistas de Galpones trabajan con la forma de datos de lib/galpones; aquí se traduce desde la API.
+const aGalpon = (g: GalponApi): Galpon => ({
+  id: g.id,
+  nombre: g.nombre,
+  aves_iniciales: g.avesIniciales,
+  fecha_llegada: g.fechaLlegada,
+  edad_semanas_llegada: g.edadSemanasLlegada,
+  gramos_ave_dia: g.gramosAveDia,
+  activo: g.activo,
 });
-const aRegistro = (r: RegistroGalpon): RegistroGalpon => ({
-  ...r,
-  huevos: Number(r.huevos),
-  muertas: Number(r.muertas),
-  alimento_kg: Number(r.alimento_kg),
+const aRegistro = (r: Omit<RegistroApi, 'galpon'>): RegistroGalpon => ({
+  id: r.id,
+  galpon_id: r.galponId,
+  fecha: r.fecha,
+  huevos: r.huevos,
+  muertas: r.muertas,
+  alimento_kg: r.alimentoKg,
+  notas: r.notas,
+  registrado_por: r.registradoPorNombre,
 });
 
 /**
+ * Todos los registros diarios. La primera página dice cuántas hay y el resto se pide en paralelo.
+ * Las vistas calculan aves vivas con el historial completo; cuando crezca mucho, conviene que usen
+ * los totales que ya da GET /api/galpones (avesVivas, muertasTotales) y pedir solo un rango de fechas.
+ */
+async function todosLosRegistros(): Promise<RegistroGalpon[]> {
+  const primera = await galponesApi.registros({ pagina: 1, limite: 100 });
+  const resto = await Promise.all(
+    Array.from({ length: primera.totalPaginas - 1 }, (_, i) => galponesApi.registros({ pagina: i + 2, limite: 100 })),
+  );
+  return [primera, ...resto].flatMap((p) => p.datos.map(aRegistro));
+}
+
+/**
  * Sección GALPONES: producción de huevos.
- * Solo lee y escribe las tablas gal_galpones y gal_registros;
- * nunca toca los datos de la Distribuidora.
+ * Solo usa /api/galpones; nunca toca los datos de la Distribuidora.
  */
 export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: GalponesAppProps) {
   const esAdmin = usuario.rol === 'admin';
@@ -55,7 +75,6 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
   const [galpones, setGalpones] = useState<Galpon[]>([]);
   const [registros, setRegistros] = useState<RegistroGalpon[]>([]);
   const [cargando, setCargando] = useState(true);
-  const [faltaMigracion, setFaltaMigracion] = useState(false);
   const [galponParaRegistrar, setGalponParaRegistrar] = useState<number | null>(null);
 
   const [procesandoRegistro, setProcesandoRegistro] = useState(false);
@@ -67,28 +86,19 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    const [g, r] = await Promise.all([
-      supabase.from('gal_galpones').select('*').order('id', { ascending: true }),
-      supabase.from('gal_registros').select('*').order('fecha', { ascending: false }),
-    ]);
-    const error = g.error || r.error;
-    if (error) {
-      // 42P01 / PGRST205: la tabla no existe todavía (migración sin ejecutar)
-      if (error.code === '42P01' || error.code === 'PGRST205' || /gal_(galpones|registros)/.test(error.message)) {
-        setFaltaMigracion(true);
-      } else {
-        notificar('error', 'No se pudieron cargar los galpones: ' + error.message);
-      }
-    } else {
-      setFaltaMigracion(false);
-      setGalpones((g.data || []).map(aGalpon));
-      setRegistros((r.data || []).map(aRegistro));
+    try {
+      // El admin ve también los galpones desactivados (para editarlos o reactivarlos).
+      const [g, r] = await Promise.all([galponesApi.listar(esAdmin ? 'todos' : 'true'), todosLosRegistros()]);
+      setGalpones(g.galpones.map(aGalpon));
+      setRegistros(r);
+    } catch (err) {
+      notificar('error', 'No se pudieron cargar los galpones: ' + mensajeDeError(err));
+    } finally {
+      setCargando(false);
     }
-    setCargando(false);
-  }, [notificar]);
+  }, [esAdmin, notificar]);
 
   useEffect(() => {
-    // Carga inicial de la sección (los datos viven en Supabase)
     // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar();
   }, [cargar]);
@@ -103,28 +113,22 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
     if (procesandoRegistro) return false;
     setProcesandoRegistro(true);
     try {
-      const { data, error } = await supabase
-        .from('gal_registros')
-        .upsert([{ ...datos, registrado_por: usuario.nombre }], { onConflict: 'galpon_id,fecha' })
-        .select()
-        .single();
-      if (error || !data) {
-        const permiso = error?.code === '42501' || /row-level security/i.test(error?.message || '');
-        notificar(
-          'error',
-          permiso
-            ? 'Solo puedes anotar o corregir el día de hoy. Para otros días, pídeselo al administrador.'
-            : 'No se pudo guardar el registro: ' + (error?.message || 'sin respuesta del servidor')
-        );
-        return false;
-      }
-      const nuevo = aRegistro(data);
+      const { registro } = await galponesApi.guardarRegistro(datos.galpon_id, datos.fecha, {
+        huevos: datos.huevos,
+        muertas: datos.muertas,
+        alimentoKg: datos.alimento_kg,
+        notas: datos.notas,
+      });
+      const nuevo = aRegistro(registro);
       setRegistros((prev) =>
         [nuevo, ...prev.filter((r) => r.id !== nuevo.id)].sort((a, b) => b.fecha.localeCompare(a.fecha) || b.id - a.id)
       );
       const galpon = galpones.find((g) => g.id === nuevo.galpon_id);
       notificar('exito', `Guardado ${galpon?.nombre ?? ''} · ${formatoDia(nuevo.fecha)}: ${textoCartones(nuevo.huevos)}, ${nuevo.muertas} muertas, ${formatoKg(nuevo.alimento_kg)} de alimento.`);
       return true;
+    } catch (err) {
+      notificar('error', mensajeDeError(err));
+      return false;
     } finally {
       setProcesandoRegistro(false);
     }
@@ -132,12 +136,12 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
 
   const confirmarEliminarRegistro = async () => {
     if (!registroAEliminar) return;
-    const { error } = await supabase.from('gal_registros').delete().eq('id', registroAEliminar.id);
-    if (error) {
-      notificar('error', 'No se pudo eliminar el registro: ' + error.message);
-    } else {
+    try {
+      await galponesApi.eliminarRegistro(registroAEliminar.id);
       setRegistros((prev) => prev.filter((r) => r.id !== registroAEliminar.id));
       notificar('exito', 'Registro eliminado.');
+    } catch (err) {
+      notificar('error', 'No se pudo eliminar el registro: ' + mensajeDeError(err));
     }
     setRegistroAEliminar(null);
   };
@@ -147,18 +151,22 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
     setProcesandoGalpon(true);
     try {
       const editando = modalGalpon.editando;
-      const consulta = editando
-        ? supabase.from('gal_galpones').update(datos).eq('id', editando.id).select().single()
-        : supabase.from('gal_galpones').insert([datos]).select().single();
-      const { data, error } = await consulta;
-      if (error || !data) {
-        notificar('error', 'No se pudo guardar el galpón: ' + (error?.message || 'sin respuesta del servidor'));
-        return;
-      }
-      const g = aGalpon(data);
+      const cuerpo = {
+        nombre: datos.nombre,
+        avesIniciales: datos.aves_iniciales,
+        fechaLlegada: datos.fecha_llegada,
+        edadSemanasLlegada: datos.edad_semanas_llegada,
+        gramosAveDia: datos.gramos_ave_dia,
+      };
+      const { galpon } = editando
+        ? await galponesApi.actualizar(editando.id, { ...cuerpo, activo: datos.activo })
+        : await galponesApi.crear(cuerpo);
+      const g = aGalpon({ ...galpon, activo: editando ? datos.activo : galpon.activo });
       setGalpones((prev) => (editando ? prev.map((x) => (x.id === g.id ? g : x)) : [...prev, g]));
       notificar('exito', editando ? `${g.nombre} actualizado.` : `${g.nombre} creado.`);
       setModalGalpon(null);
+    } catch (err) {
+      notificar('error', 'No se pudo guardar el galpón: ' + mensajeDeError(err));
     } finally {
       setProcesandoGalpon(false);
     }
@@ -181,25 +189,12 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
     if (!galponAEliminar || procesandoGalpon) return;
     setProcesandoGalpon(true);
     try {
-      const { data, error } = await supabase.from('gal_galpones').delete().eq('id', galponAEliminar.id).select('id');
-      if (error) {
-        // 23503: tiene registros (alguien anotó un día mientras tanto)
-        notificar(
-          'error',
-          error.code === '23503'
-            ? `${galponAEliminar.nombre} ya tiene días anotados. Desactívalo en vez de eliminarlo.`
-            : 'No se pudo eliminar el galpón: ' + error.message
-        );
-        return;
-      }
-      if (!data || data.length === 0) {
-        // Sin error y sin filas: falta el permiso de borrar en la base de datos
-        notificar('error', 'La base de datos no permitió eliminarlo. Ejecuta en Supabase el archivo supabase/migrations/20261106000000_galpones_eliminar.sql.');
-        return;
-      }
+      await galponesApi.eliminar(galponAEliminar.id);
       setGalpones((prev) => prev.filter((x) => x.id !== galponAEliminar.id));
       notificar('exito', `${galponAEliminar.nombre} eliminado.`);
       setGalponAEliminar(null);
+    } catch (err) {
+      notificar('error', mensajeDeError(err));
     } finally {
       setProcesandoGalpon(false);
     }
@@ -235,11 +230,6 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
         <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 pb-28 pt-6 sm:px-8 lg:pb-10 lg:pt-8">
           {cargando && galpones.length === 0 ? (
             <CargandoModulo />
-          ) : faltaMigracion ? (
-            <Alert tono="aviso">
-              La sección de Galpones todavía no está activada en la base de datos. El administrador debe ejecutar el archivo
-              <strong> supabase/migrations/20261105000000_galpones.sql</strong> en Supabase → SQL Editor.
-            </Alert>
           ) : (
             <>
               {moduloVisible === 'gal-inicio' && (

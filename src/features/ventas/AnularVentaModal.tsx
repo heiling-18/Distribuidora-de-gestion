@@ -3,7 +3,8 @@
 import React from 'react';
 import { Button, Field, Modal } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
-import type { Venta } from '@/types';
+import { textoItems } from '@/lib/ventas';
+import type { Venta } from '@/types/api';
 
 interface AnularVentaModalProps {
   venta: Venta;
@@ -14,17 +15,16 @@ interface AnularVentaModalProps {
   onCancelar: () => void;
 }
 
-const MAX_MOTIVO = 40;
+const MAX_MOTIVO = 120;
 
 export function AnularVentaModal({ venta, motivo, procesando, onMotivo, onConfirmar, onCancelar }: AnularVentaModalProps) {
   return (
     <Modal
-      titulo={`Anular venta #${venta.id}`}
+      titulo={`Anular venta #${venta.numero}`}
       descripcion={
         <>
-          Se devolverán <strong className="text-tinta">{venta.cantidad} {venta.cantidad === 1 ? 'unidad' : 'unidades'}</strong> de{' '}
-          <strong className="text-tinta">{venta.nombre_producto}</strong> al inventario y se descontarán{' '}
-          <strong className="text-tinta tabular">{formatoMoneda(venta.total_venta)}</strong> del dinero en caja.
+          Se devolverá al inventario <strong className="text-tinta">{textoItems(venta) || 'lo vendido'}</strong> y la venta de{' '}
+          <strong className="text-tinta tabular">{formatoMoneda(venta.total)}</strong> dejará de contar en la caja y en los reportes.
         </>
       }
       onCerrar={onCancelar}
@@ -33,7 +33,7 @@ export function AnularVentaModal({ venta, motivo, procesando, onMotivo, onConfir
         className="flex flex-col gap-5"
         onSubmit={(e) => {
           e.preventDefault();
-          if (motivo.trim()) onConfirmar();
+          if (motivo.trim().length >= 3) onConfirmar();
         }}
       >
         <Field
@@ -48,7 +48,7 @@ export function AnularVentaModal({ venta, motivo, procesando, onMotivo, onConfir
         />
         <div className="grid grid-cols-2 gap-2.5">
           <Button variante="secundario" onClick={onCancelar}>Cancelar</Button>
-          <Button type="submit" disabled={!motivo.trim()} cargando={procesando} className="bg-rojo-oscuro hover:bg-error-texto">
+          <Button type="submit" disabled={motivo.trim().length < 3} cargando={procesando} className="bg-rojo-oscuro hover:bg-error-texto">
             Anular venta
           </Button>
         </div>

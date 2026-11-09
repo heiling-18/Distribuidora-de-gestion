@@ -41,6 +41,24 @@ export const MODULOS: ModuloInfo[] = [
   { id: 'reportes', etiqueta: 'Reportes', corto: 'Reportes', Icono: BarChart3, soloAdmin: true },
 ];
 
+/** URL de cada módulo de la Distribuidora. */
+export const RUTA_MODULO: Record<Modulo, string> = {
+  dashboard: '/',
+  pos: '/pos',
+  ventas: '/ventas',
+  inventario: '/inventario',
+  caja: '/caja',
+  clientes: '/clientes',
+  gastos: '/gastos',
+  reportes: '/reportes',
+};
+
+/** Módulo que corresponde a una URL (el primer segmento). */
+export function moduloDeRuta(pathname: string): Modulo {
+  const segmento = pathname.split('/')[1] ?? '';
+  return (Object.keys(RUTA_MODULO) as Modulo[]).find((m) => RUTA_MODULO[m] === `/${segmento}`) ?? 'dashboard';
+}
+
 /** Módulos fijos en la barra inferior del celular; el resto va en "Más" */
 export const MODULOS_BARRA_MOVIL: Modulo[] = ['dashboard', 'pos', 'inventario', 'caja'];
 

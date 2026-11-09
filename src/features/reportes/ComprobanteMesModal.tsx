@@ -4,29 +4,29 @@ import React from 'react';
 import { MessageCircle, Printer } from 'lucide-react';
 import { Button, Modal } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
-import type { CierreMensual } from '@/types';
+import type { CierreMensual } from '@/types/api';
 import { nombreMes } from './meses';
 
 /** Acta del cierre de mes; el bloque #ticket-imprimible es lo único que sale en la impresora (ver globals.css) */
 export function ComprobanteMesModal({ cierre, telefonoDueno, onCerrar }: { cierre: CierreMensual; telefonoDueno: string; onCerrar: () => void }) {
   const titulo = nombreMes(cierre.mes);
   const filas: [string, string, boolean?][] = [
-    ['Ventas en efectivo', formatoMoneda(cierre.ventas_efectivo)],
-    ['Ventas por transferencia', formatoMoneda(cierre.ventas_transferencia)],
-    ['Total vendido', formatoMoneda(cierre.total_ventas), true],
-    ['Ganancia bruta', formatoMoneda(cierre.ganancia_bruta)],
-    ['Gastos del mes', `-${formatoMoneda(cierre.total_gastos)}`],
-    ['Utilidad del mes', formatoMoneda(cierre.utilidad_neta), true],
-    ['Ventas registradas', String(cierre.num_ventas)],
-    ['Unidades vendidas', String(Number(cierre.unidades_vendidas))],
-    ['Ventas anuladas', String(cierre.num_anuladas)],
+    ['Ventas en efectivo', formatoMoneda(cierre.ventasEfectivo)],
+    ['Ventas por transferencia', formatoMoneda(cierre.ventasTransferencia)],
+    ['Total vendido', formatoMoneda(cierre.totalVentas), true],
+    ['Ganancia bruta', formatoMoneda(cierre.gananciaBruta)],
+    ['Gastos del mes', `-${formatoMoneda(cierre.totalGastos)}`],
+    ['Utilidad del mes', formatoMoneda(cierre.utilidadNeta), true],
+    ['Ventas registradas', String(cierre.numVentas)],
+    ['Unidades vendidas', String(Number(cierre.unidadesVendidas))],
+    ['Ventas anuladas', String(cierre.numAnuladas)],
   ];
-  const cerradoEn = new Date(cierre.cerrado_en).toLocaleString('es-CO');
+  const cerradoEn = new Date(cierre.cerradoEn).toLocaleString('es-CO');
 
   const texto = [
     `*DYM’S · Cierre de ${titulo}*`,
     ...filas.map(([etiqueta, valor]) => `${etiqueta}: ${valor}`),
-    `Cerrado por ${cierre.cerrado_por} el ${cerradoEn}`,
+    `Cerrado por ${cierre.cerradoPorNombre} el ${cerradoEn}`,
   ].join('\n');
   const numero = telefonoDueno.replace(/[^0-9]/g, '');
   const linkWhatsApp = `https://wa.me/57${numero}?text=${encodeURIComponent(texto)}`;
@@ -47,7 +47,7 @@ export function ComprobanteMesModal({ cierre, telefonoDueno, onCerrar }: { cierr
             </div>
           ))}
         </div>
-        <p className="text-center">Cerrado por {cierre.cerrado_por}<br />{cerradoEn}</p>
+        <p className="text-center">Cerrado por {cierre.cerradoPorNombre}<br />{cerradoEn}</p>
       </div>
 
       <div className="no-print flex flex-col gap-2.5">

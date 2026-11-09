@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
-import { Alert, Badge, Button, EmptyState, Field, Fila, PageHeader, Panel, Tabla, Td, Th, cn } from '@/components/ui';
+import { Alert, Badge, Button, CampoFecha, EmptyState, Field, Fila, PageHeader, Panel, Tabla, Td, Th, cn } from '@/components/ui';
 import {
   alimentoSugeridoKg,
   formatoBultos,
@@ -107,7 +107,7 @@ export function RegistroDiarioView(p: RegistroDiarioViewProps) {
         </div>
 
         {p.esAdmin ? (
-          <Field etiqueta="Fecha" type="date" max={hoy} value={fecha} onChange={(e) => setFecha(e.target.value || hoy)} className="sm:max-w-[240px]" />
+          <CampoFecha etiqueta="Fecha" max={hoy} value={fecha} onChange={(e) => setFecha(e.target.value || hoy)} className="sm:max-w-[320px]" />
         ) : (
           <p className="text-[15px] text-tinta-suave">
             Fecha: <strong className="text-tinta">{formatoDia(hoy)}</strong>

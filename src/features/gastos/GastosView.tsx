@@ -3,23 +3,26 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { Badge, Button, EmptyState, Fila, PageHeader, Panel, Tabla, Td, Th } from '@/components/ui';
 import { formatoFecha, formatoMoneda } from '@/lib/formato';
 import { textoCategoriaGasto } from '@/lib/gastos';
-import type { Gasto } from '@/types';
+import type { Gasto } from '@/types/api';
 
 interface GastosViewProps {
   gastos: Gasto[];
+  /** Cantidad y suma de todos los gastos (la lista trae solo los más recientes). */
+  resumen: { total: number; montoTotal: number };
   onNuevo: () => void;
   onEditar: (g: Gasto) => void;
   onEliminar: (g: Gasto) => void;
 }
 
-export function GastosView({ gastos, onNuevo, onEditar, onEliminar }: GastosViewProps) {
-  const total = gastos.reduce((acc, g) => acc + (Number(g.monto) || 0), 0);
+export function GastosView({ gastos, resumen, onNuevo, onEditar, onEliminar }: GastosViewProps) {
+  const { total: cantidad, montoTotal } = resumen;
+  const recortado = cantidad > gastos.length;
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         titulo="Gastos"
-        descripcion={`${gastos.length} ${gastos.length === 1 ? 'gasto registrado' : 'gastos registrados'} · ${formatoMoneda(total)} en total`}
+        descripcion={`${cantidad} ${cantidad === 1 ? 'gasto registrado' : 'gastos registrados'} · ${formatoMoneda(montoTotal)} en total${recortado ? ` · se muestran los ${gastos.length} más recientes` : ''}`}
         acciones={
           <Button onClick={onNuevo}>
             <Plus className="h-5 w-5" aria-hidden="true" />

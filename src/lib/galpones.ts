@@ -1,3 +1,4 @@
+import { hoyNegocio } from './fechas';
 import { ClipboardPen, House, Warehouse, type LucideIcon } from 'lucide-react';
 
 // ==========================================
@@ -51,7 +52,8 @@ export const MODULOS_GALPONES: ModuloGalponesInfo[] = [
 ];
 
 /** Fecha de hoy en la zona del navegador, formato YYYY-MM-DD */
-export const hoyLocal = () => new Date().toLocaleDateString('en-CA');
+/** Día de hoy en Colombia (no el del computador), 'YYYY-MM-DD'. */
+export const hoyLocal = () => hoyNegocio();
 
 /** "2026-11-05" → "5 nov 2026" sin correr el día por la zona horaria */
 export const formatoDia = (fecha: string) => {

@@ -5,7 +5,7 @@ import { Download, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button, EmptyState, Fila, PageHeader, Panel, SearchInput, Select, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
 import { CATEGORIAS_PRODUCTO } from '@/lib/categorias';
-import type { Producto } from '@/types';
+import type { Producto } from '@/types/api';
 
 interface InventarioViewProps {
   productos: Producto[];
@@ -24,9 +24,9 @@ export function InventarioView({ productos, esAdmin, onNuevo, onEditar, onElimin
   const [soloReponer, setSoloReponer] = useState(false);
   const [pagina, setPagina] = useState(1);
 
-  const porReponer = productos.filter((p) => p.stock <= p.stock_minimo).length;
-  const inversion = productos.reduce((acc, p) => acc + p.stock * p.precio_compra, 0);
-  const valorComercial = productos.reduce((acc, p) => acc + p.stock * p.precio_venta, 0);
+  const porReponer = productos.filter((p) => p.stock <= p.stockMinimo).length;
+  const inversion = productos.reduce((acc, p) => acc + p.stock * (p.precioCompra ?? 0), 0);
+  const valorComercial = productos.reduce((acc, p) => acc + p.stock * p.precioVenta, 0);
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -34,7 +34,7 @@ export function InventarioView({ productos, esAdmin, onNuevo, onEditar, onElimin
       (p) =>
         p.nombre.toLowerCase().includes(q) &&
         (categoria === 'Todas' || p.categoria === categoria) &&
-        (!soloReponer || p.stock <= p.stock_minimo)
+        (!soloReponer || p.stock <= p.stockMinimo)
     );
   }, [productos, busqueda, categoria, soloReponer]);
 
@@ -47,7 +47,7 @@ export function InventarioView({ productos, esAdmin, onNuevo, onEditar, onElimin
     return {
       cat,
       stock: prods.reduce((a, p) => a + p.stock, 0),
-      valor: prods.reduce((a, p) => a + p.stock * (esAdmin ? p.precio_compra : p.precio_venta), 0)
+      valor: prods.reduce((a, p) => a + p.stock * (esAdmin ? (p.precioCompra ?? 0) : p.precioVenta), 0)
     };
   }).filter((c) => c.stock > 0 || c.valor > 0);
 
@@ -140,36 +140,36 @@ export function InventarioView({ productos, esAdmin, onNuevo, onEditar, onElimin
             <tbody>
               {visibles.map((p) => {
                 const agotado = p.stock <= 0;
-                const bajo = p.stock <= p.stock_minimo;
-                const pct = Math.min(100, Math.max(agotado ? 2 : 4, (p.stock / Math.max(1, p.stock_minimo * 3)) * 100));
-                const margenPct = p.precio_compra > 0 ? ((p.precio_venta - p.precio_compra) / p.precio_compra) * 100 : 0;
-                const unidad = `${p.unidad_medida}${p.stock === 1 ? '' : 's'}`;
+                const bajo = p.stock <= p.stockMinimo;
+                const pct = Math.min(100, Math.max(agotado ? 2 : 4, (p.stock / Math.max(1, p.stockMinimo * 3)) * 100));
+                const margenPct = (p.precioCompra ?? 0) > 0 ? ((p.precioVenta - (p.precioCompra ?? 0)) / (p.precioCompra ?? 0)) * 100 : 0;
+                const unidad = `${p.unidadMedida}${p.stock === 1 ? '' : 's'}`;
                 return (
                   <Fila key={p.id}>
                     <Td>
                       <div className="flex flex-col gap-0.5">
                         <strong className="font-semibold">{p.nombre}</strong>
                         <span className="text-[13px] text-tinta-suave">
-                          {p.categoria} · {p.unidad_medida}{p.iva_porcentaje ? ` · IVA ${p.iva_porcentaje} %` : ''}
+                          {p.categoria} · {p.unidadMedida}{p.ivaPorcentaje ? ` · IVA ${p.ivaPorcentaje} %` : ''}
                         </span>
                       </div>
                     </Td>
                     <Td>
                       <div className="flex flex-col gap-1.5">
                         <span className={cn('font-bold tabular', agotado ? 'text-rojo-oscuro' : bajo ? 'text-aviso-texto' : 'text-tinta')}>
-                          {agotado ? `Agotado · mín. ${p.stock_minimo}` : bajo ? `${p.stock} · mín. ${p.stock_minimo}` : `${p.stock} ${unidad}`}
+                          {agotado ? `Agotado · mín. ${p.stockMinimo}` : bajo ? `${p.stock} · mín. ${p.stockMinimo}` : `${p.stock} ${unidad}`}
                         </span>
                         <div className="h-1.5 rounded-sm bg-hundido">
                           <div className={cn('h-full rounded-sm', agotado ? 'bg-rojo' : bajo ? 'bg-maiz-oscuro' : 'bg-exito')} style={{ width: `${pct}%` }} />
                         </div>
                       </div>
                     </Td>
-                    {esAdmin && <Td alinear="der" className="tabular">{formatoMoneda(p.precio_compra)}</Td>}
-                    <Td alinear="der" className="font-semibold tabular">{formatoMoneda(p.precio_venta)}</Td>
-                    <Td alinear="der" className="font-semibold text-mayor tabular">{formatoMoneda(p.precio_mayorista)}</Td>
+                    {esAdmin && <Td alinear="der" className="tabular">{formatoMoneda((p.precioCompra ?? 0))}</Td>}
+                    <Td alinear="der" className="font-semibold tabular">{formatoMoneda(p.precioVenta)}</Td>
+                    <Td alinear="der" className="font-semibold text-mayor tabular">{formatoMoneda(p.precioMayorista)}</Td>
                     {esAdmin && <Td alinear="der" className="tabular">{margenPct.toFixed(1).replace('.', ',')} %</Td>}
                     <Td alinear="der" className="font-semibold tabular">
-                      {formatoMoneda(p.stock * (esAdmin ? p.precio_compra : p.precio_venta))}
+                      {formatoMoneda(p.stock * (esAdmin ? (p.precioCompra ?? 0) : p.precioVenta))}
                     </Td>
                     {esAdmin && (
                       <Td alinear="der" className="whitespace-nowrap">

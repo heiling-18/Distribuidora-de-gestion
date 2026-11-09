@@ -2,18 +2,21 @@
 
 import React from 'react';
 import { Badge, Button, EmptyState, Modal } from '@/components/ui';
-import type { Producto } from '@/types';
+import type { Producto } from '@/types/api';
+
+type ProductoAlerta = Pick<Producto, 'id' | 'nombre' | 'stock' | 'stockMinimo' | 'unidadMedida'>;
 
 interface AlertasStockModalProps {
-  productos: Producto[];
+  /** Productos ya filtrados por la API (stock en o por debajo del mínimo). */
+  productos: ProductoAlerta[];
   esAdmin: boolean;
-  onReponer: (p: Producto) => void;
+  onReponer: (p: ProductoAlerta) => void;
   onCerrar: () => void;
 }
 
 /** Productos agotados o por debajo de su mínimo */
 export function AlertasStockModal({ productos, esAdmin, onReponer, onCerrar }: AlertasStockModalProps) {
-  const lista = productos.filter((p) => p.stock <= p.stock_minimo).sort((a, b) => a.stock - b.stock);
+  const lista = [...productos].sort((a, b) => a.stock - b.stock);
 
   return (
     <Modal
@@ -32,7 +35,7 @@ export function AlertasStockModal({ productos, esAdmin, onReponer, onCerrar }: A
               <li key={p.id} className="flex items-center gap-3 rounded-campo bg-hundido px-4 py-3">
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <strong className="truncate font-semibold">{p.nombre}</strong>
-                  <span className="text-sm text-tinta-suave tabular">Mínimo {p.stock_minimo} {p.unidad_medida}s</span>
+                  <span className="text-sm text-tinta-suave tabular">Mínimo {p.stockMinimo} {p.unidadMedida}s</span>
                 </div>
                 <Badge tono={agotado ? 'error' : 'aviso'}>{agotado ? 'Agotado' : `Quedan ${p.stock}`}</Badge>
                 {esAdmin && (

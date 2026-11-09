@@ -4,17 +4,17 @@ import React from 'react';
 import { Printer } from 'lucide-react';
 import { Button, Modal } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
-import type { CierreCaja } from '@/types';
+import type { CierreCaja } from '@/types/api';
 
 /** Comprobante del arqueo; el bloque #ticket-imprimible es lo único que sale en la impresora (ver globals.css) */
 export function ComprobanteCierreModal({ cierre, onCerrar }: { cierre: CierreCaja; onCerrar: () => void }) {
   const filas: [string, string, boolean?][] = [
-    ['Base de apertura', formatoMoneda(cierre.monto_inicial)],
-    ['Ventas en efectivo', `+${formatoMoneda(cierre.ventas_efectivo)}`],
-    ['Ventas por transferencia', `+${formatoMoneda(cierre.ventas_transferencia)}`],
-    ['Gastos pagados', `-${formatoMoneda(cierre.total_gastos)}`],
-    ['Efectivo esperado', formatoMoneda(cierre.dinero_esperado), true],
-    ['Efectivo contado', formatoMoneda(cierre.dinero_real), true],
+    ['Base de apertura', formatoMoneda(cierre.montoInicial)],
+    ['Ventas en efectivo', `+${formatoMoneda(cierre.ventasEfectivo)}`],
+    ['Ventas por transferencia', `+${formatoMoneda(cierre.ventasTransferencia)}`],
+    ['Gastos pagados', `-${formatoMoneda(cierre.gastosEfectivo)}`],
+    ['Efectivo esperado', formatoMoneda(cierre.dineroEsperado), true],
+    ['Efectivo contado', formatoMoneda(cierre.dineroReal), true],
     ['Diferencia', formatoMoneda(cierre.diferencia), true],
   ];
 
@@ -24,7 +24,7 @@ export function ComprobanteCierreModal({ cierre, onCerrar }: { cierre: CierreCaj
         <div className="flex flex-col items-center gap-0.5 text-center">
           <strong className="text-base">DYM’S</strong>
           <span>Comprobante de cierre de caja</span>
-          <span>{new Date(cierre.hora_cierre).toLocaleString('es-CO')}</span>
+          <span>{new Date(cierre.cerradoEn).toLocaleString('es-CO')}</span>
           <span>Responsable: {cierre.responsable}</span>
         </div>
         <div className="flex flex-col gap-1 border-y border-dashed border-tinta-tenue py-2">

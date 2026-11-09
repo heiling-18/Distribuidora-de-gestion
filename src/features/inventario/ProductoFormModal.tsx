@@ -100,8 +100,7 @@ export function ProductoFormModal(p: ProductoFormModalProps) {
             <div className="grid gap-3.5 sm:grid-cols-2">
               <Field
                 etiqueta="Valor total de la factura"
-                type="number"
-                inputMode="numeric"
+                moneda
                 min="0"
                 placeholder="900000"
                 value={v.facturaLote}
@@ -119,8 +118,7 @@ export function ProductoFormModal(p: ProductoFormModalProps) {
           ) : (
             <Field
               etiqueta={`Costo por ${unidad}`}
-              type="number"
-              inputMode="numeric"
+              moneda
               required
               min="0"
               placeholder="95000"
@@ -164,8 +162,7 @@ export function ProductoFormModal(p: ProductoFormModalProps) {
           <div className="grid gap-3.5 sm:grid-cols-2">
             <Field
               etiqueta="Precio detal"
-              type="number"
-              inputMode="numeric"
+              moneda
               required
               min="0"
               placeholder="115000"
@@ -177,8 +174,7 @@ export function ProductoFormModal(p: ProductoFormModalProps) {
             />
             <Field
               etiqueta="Precio por mayor"
-              type="number"
-              inputMode="numeric"
+              moneda
               min="0"
               placeholder="110000"
               value={v.precioMayor}

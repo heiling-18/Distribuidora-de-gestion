@@ -5,7 +5,8 @@ import { Minus, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import { Alert, Badge, Button, EmptyState, SearchInput, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
 import { CATEGORIAS_PRODUCTO } from '@/lib/categorias';
-import type { Cliente, ItemCarrito, Producto } from '@/types';
+import type { Cliente, Producto } from '@/types/api';
+import type { ItemCarrito } from './carrito';
 
 type MetodoPago = 'efectivo' | 'transferencia';
 
@@ -50,7 +51,7 @@ export function POSView(p: POSViewProps) {
   const clientesCoinciden = useMemo(() => {
     const q = p.busquedaCliente.trim().toLowerCase();
     if (!q) return [];
-    return p.clientes.filter((c) => c.documento.includes(q) || c.nombre.toLowerCase().includes(q)).slice(0, 6);
+    return p.clientes.filter((c) => (c.documento ?? '').includes(q) || c.nombre.toLowerCase().includes(q)).slice(0, 6);
   }, [p.clientes, p.busquedaCliente]);
 
   const unidades = p.carrito.reduce((a, i) => a + i.cantidad, 0);
@@ -109,7 +110,7 @@ export function POSView(p: POSViewProps) {
             {visibles.map((x) => {
               const disponible = x.stock - enCarrito(x.id);
               const agotado = x.stock <= 0;
-              const bajo = !agotado && x.stock <= x.stock_minimo;
+              const bajo = !agotado && x.stock <= x.stockMinimo;
               return (
                 <article
                   key={x.id}
@@ -123,11 +124,11 @@ export function POSView(p: POSViewProps) {
                   <div className="flex gap-5">
                     <span className="flex flex-col">
                       <span className="text-[13px] text-tinta-suave">Detal</span>
-                      <strong className="text-lg tabular">{formatoMoneda(x.precio_venta)}</strong>
+                      <strong className="text-lg tabular">{formatoMoneda(x.precioVenta)}</strong>
                     </span>
                     <span className="flex flex-col">
                       <span className="text-[13px] text-mayor">Por mayor</span>
-                      <strong className="text-lg text-mayor tabular">{formatoMoneda(x.precio_mayorista)}</strong>
+                      <strong className="text-lg text-mayor tabular">{formatoMoneda(x.precioMayorista)}</strong>
                     </span>
                   </div>
                   <div className="mt-auto grid grid-cols-2 gap-2">
@@ -185,7 +186,7 @@ export function POSView(p: POSViewProps) {
             <div className="flex items-center gap-3 rounded-control bg-exito-fondo px-3.5 py-2.5">
               <div className="flex min-w-0 flex-1 flex-col">
                 <strong className="truncate text-[15px] text-exito-texto">{p.clienteSeleccionado.nombre}</strong>
-                <span className="text-[13px] text-exito-texto tabular">C.C. / NIT {p.clienteSeleccionado.documento}</span>
+                <span className="text-[13px] text-exito-texto tabular">{p.clienteSeleccionado.documento ? `C.C. / NIT ${p.clienteSeleccionado.documento}` : 'Cliente registrado'}</span>
               </div>
               <button
                 type="button"
@@ -252,13 +253,13 @@ export function POSView(p: POSViewProps) {
             <EmptyState titulo="El carrito está vacío" descripcion="Toca «+ Detal» o «+ Mayor» en un producto." className="flex-1 py-8" />
           ) : (
             p.carrito.map((item, idx) => {
-              const mayor = item.tipo_precio === 'mayorista';
+              const mayor = item.tipoPrecio === 'mayorista';
               return (
-                <div key={`${item.producto.id}-${item.tipo_precio}`} className="animate-subir flex items-center gap-2.5 rounded-control bg-hundido p-3 [animation-duration:.35s]">
+                <div key={`${item.producto.id}-${item.tipoPrecio}`} className="animate-subir flex items-center gap-2.5 rounded-control bg-hundido p-3 [animation-duration:.35s]">
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <strong className="truncate text-[15px] font-semibold">{item.producto.nombre}</strong>
                     <span className={cn('text-[13px] tabular', mayor ? 'text-mayor' : 'text-tinta-suave')}>
-                      {mayor ? 'Por mayor' : 'Detal'} · {formatoMoneda(item.precio_aplicado)}
+                      {mayor ? 'Por mayor' : 'Detal'} · {formatoMoneda(item.precioUnitario)}
                     </span>
                   </div>
                   <div className="flex items-center gap-1">

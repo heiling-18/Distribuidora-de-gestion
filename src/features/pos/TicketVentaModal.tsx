@@ -12,7 +12,7 @@ export interface TicketVenta {
   documento: string;
   telefono: string;
   esClienteRegistrado: boolean;
-  items: Array<{ cantidad: number; producto: { nombre: string }; tipo_precio: string; total: number }>;
+  items: Array<{ cantidad: number; producto: { nombre: string }; tipoPrecio: string; total: number }>;
   subtotal: number;
   iva: number;
   total: number;
@@ -21,6 +21,8 @@ export interface TicketVenta {
 }
 
 interface TicketVentaModalProps {
+  /** NIT del negocio (viene de la configuración). */
+  nit?: string;
   ticket: TicketVenta;
   linkWhatsAppCliente: string;
   linkWhatsAppDueno: string;
@@ -32,7 +34,7 @@ const enlace =
   'inline-flex h-11 w-full items-center justify-center gap-2 rounded-control px-4 text-[15px] font-bold transition-colors';
 
 /** Ticket de la venta; el bloque #ticket-imprimible es lo único que sale en la impresora (ver globals.css) */
-export function TicketVentaModal({ ticket, linkWhatsAppCliente, linkWhatsAppDueno, telefonoDueno, onCerrar }: TicketVentaModalProps) {
+export function TicketVentaModal({ ticket, linkWhatsAppCliente, linkWhatsAppDueno, telefonoDueno, nit, onCerrar }: TicketVentaModalProps) {
   const conCliente = ticket.esClienteRegistrado && ticket.cliente !== 'Cliente General';
 
   return (
@@ -41,7 +43,7 @@ export function TicketVentaModal({ ticket, linkWhatsAppCliente, linkWhatsAppDuen
         <div className="flex flex-col items-center gap-0.5 text-center">
           <strong className="text-base">DYM’S</strong>
           <span>Nutrición y producción agropecuaria</span>
-          <span>NIT: 901.458.712-4</span>
+          {nit && <span>NIT: {nit}</span>}
           <span>Ticket #{ticket.numero}</span>
           <span>{ticket.fecha}</span>
           <span>Atendió: {ticket.vendedor}</span>
@@ -52,7 +54,7 @@ export function TicketVentaModal({ ticket, linkWhatsAppCliente, linkWhatsAppDuen
           {ticket.items.map((it, i) => (
             <div key={i} className="flex justify-between gap-3">
               <span>
-                {it.cantidad} × {it.producto.nombre} <span className="text-[11px]">({it.tipo_precio === 'mayorista' ? 'mayor' : 'detal'})</span>
+                {it.cantidad} × {it.producto.nombre} <span className="text-[11px]">({it.tipoPrecio === 'mayorista' ? 'mayor' : 'detal'})</span>
               </span>
               <span className="whitespace-nowrap font-bold">{formatoMoneda(it.total)}</span>
             </div>

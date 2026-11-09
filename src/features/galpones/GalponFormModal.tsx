@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Alert, Button, Field, Modal } from '@/components/ui';
+import { Alert, Button, CampoFecha, Field, Modal } from '@/components/ui';
 import { GRAMOS_GALLINA_POSTURA, hoyLocal, type Galpon } from '@/lib/galpones';
 
 export interface DatosGalpon {
@@ -71,7 +71,7 @@ export function GalponFormModal({ galpon, procesando, onGuardar, onCerrar }: Gal
             onChange={(e) => setAves(e.target.value)}
             className="tabular"
           />
-          <Field etiqueta="Fecha de llegada" type="date" required value={llegada} onChange={(e) => setLlegada(e.target.value)} />
+          <CampoFecha etiqueta="Fecha de llegada" max={hoyLocal()} value={llegada} onChange={(e) => setLlegada(e.target.value)} />
           <Field
             etiqueta="Edad al llegar (semanas)"
             type="number"

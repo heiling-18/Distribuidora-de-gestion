@@ -42,8 +42,7 @@ export function GastoFormModal(p: GastoFormModalProps) {
         />
         <Field
           etiqueta="Monto"
-          type="number"
-          inputMode="numeric"
+          moneda
           required
           min="1"
           placeholder="50000"

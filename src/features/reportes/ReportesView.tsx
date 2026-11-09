@@ -2,75 +2,85 @@ import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, Lock, Receipt } from 'lucide-react';
 import { Badge, Button, ConfirmDialog, EmptyState, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoFecha, formatoMoneda } from '@/lib/formato';
-import type { CierreMensual, Gasto, Venta } from '@/types';
+import type { CierreMensual, Historico, ReporteMes, Venta } from '@/types/api';
+import { esPorMayor, textoItems } from '@/lib/ventas';
 import { ComprobanteMesModal } from './ComprobanteMesModal';
 import { MESES, MESES_LARGOS, claveMes, mesDesplazado, nombreMes } from './meses';
 
 interface ReportesViewProps {
-  ventas: Venta[];
-  gastos: Gasto[];
+  /** Reporte del mes que se está viendo (lo calcula la API). */
+  reporte: ReporteMes;
+  mesVisto: string;
+  onMesVisto: (mes: string) => void;
+  historico: Historico;
   cierres: CierreMensual[];
-  tipoPrecio: (v: Venta) => 'detal' | 'mayorista';
+  /** Últimas ventas, con sus productos. */
+  ultimas: Venta[];
   onExportar: () => void;
   onVerTicket: (v: Venta) => void;
-  /** Cierra un mes ya terminado ("2026-10-01"); devuelve el acta, o null si falló */
+  /** Cierra el mes y devuelve el acta (o null si falló). */
   onCerrarMes: (mes: string) => Promise<CierreMensual | null>;
   telefonoDueno: string;
 }
 
-/** Totales de un mes con las ventas y gastos cargados (sin anuladas) */
-function calcularMes(ventas: Venta[], gastos: Gasto[], clave: string) {
-  const delMes = ventas.filter((v) => claveMes(v.fecha) === clave);
-  const validas = delMes.filter((v) => v.estado !== 'anulada');
-  const total = validas.reduce((acc, v) => acc + (Number(v.total_venta) || 0), 0);
-  const ganancia = validas.reduce((acc, v) => acc + (Number(v.ganancia_bruta) || 0), 0);
-  const totalGastos = gastos.filter((g) => claveMes(g.fecha) === clave).reduce((acc, g) => acc + (Number(g.monto) || 0), 0);
-  return { total, ganancia, gastos: totalGastos, utilidad: ganancia - totalGastos, cantidad: validas.length, anuladas: delMes.length - validas.length };
-}
+type Totales = { total: number; ganancia: number; gastos: number; utilidad: number; cantidad: number; anuladas: number };
 
-export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, onVerTicket, onCerrarMes, telefonoDueno }: ReportesViewProps) {
+export function ReportesView({ reporte, mesVisto, onMesVisto, historico: h, cierres, ultimas, onExportar, onVerTicket, onCerrarMes, telefonoDueno }: ReportesViewProps) {
   const [mesACerrar, setMesACerrar] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState(false);
   const [acta, setActa] = useState<CierreMensual | null>(null);
+  const setMesVisto = onMesVisto;
 
-  // El saldo arranca en 0 cada mes: el resumen muestra el mes en curso, y con las flechas se ven los anteriores
   const mesActual = claveMes(new Date());
-  const [mesVisto, setMesVisto] = useState(mesActual);
-  const resumen = useMemo(() => calcularMes(ventas, gastos, mesVisto), [ventas, gastos, mesVisto]);
-  const cierreVisto = cierres.find((c) => c.mes === mesVisto);
+  const resumen: Totales = {
+    total: reporte.totalVentas,
+    ganancia: reporte.gananciaBruta,
+    gastos: reporte.totalGastos,
+    utilidad: reporte.utilidadNeta,
+    cantidad: reporte.numVentas,
+    anuladas: reporte.numAnuladas,
+  };
+  const cierreVisto = reporte.cierre ?? cierres.find((c) => c.mes === mesVisto);
 
   // Primer mes con movimiento: hasta ahí deja retroceder la flecha
-  const primerMes = useMemo(() => {
-    let primero = mesActual;
-    for (const v of ventas) primero = claveMes(v.fecha) < primero ? claveMes(v.fecha) : primero;
-    for (const g of gastos) primero = claveMes(g.fecha) < primero ? claveMes(g.fecha) : primero;
-    return primero;
-  }, [ventas, gastos, mesActual]);
+  const primerMes = h.porMes.length ? h.porMes[h.porMes.length - 1]!.mes : mesActual;
 
-  // Totales desde el inicio (todos los meses, sin anuladas)
-  const historico = useMemo(() => {
-    const validas = ventas.filter((v) => v.estado !== 'anulada');
-    const total = validas.reduce((acc, v) => acc + (Number(v.total_venta) || 0), 0);
-    const ganancia = validas.reduce((acc, v) => acc + (Number(v.ganancia_bruta) || 0), 0);
-    const totalGastos = gastos.reduce((acc, g) => acc + (Number(g.monto) || 0), 0);
-    return { total, ganancia, gastos: totalGastos, utilidad: ganancia - totalGastos, cantidad: validas.length, anuladas: ventas.length - validas.length };
-  }, [ventas, gastos]);
+  const historico: Totales = {
+    total: h.totalVentas,
+    ganancia: h.gananciaBruta,
+    gastos: h.totalGastos,
+    utilidad: h.utilidadNeta,
+    cantidad: h.numVentas,
+    anuladas: h.numAnuladas,
+  };
 
   const margen = (ganancia: number, total: number) =>
     total > 0 ? `${((ganancia / total) * 100).toFixed(1).replace('.', ',')} %` : '—';
 
+  /** Totales de un mes a partir del histórico (sin anuladas). */
+  const delMes = (clave: string): Totales => {
+    const m = h.porMes.find((x) => x.mes === clave);
+    return {
+      total: m?.totalVentas ?? 0,
+      ganancia: m?.gananciaBruta ?? 0,
+      gastos: m?.totalGastos ?? 0,
+      utilidad: m?.utilidadNeta ?? 0,
+      cantidad: m?.numVentas ?? 0,
+      anuladas: 0,
+    };
+  };
+
   // Meses que ya terminaron y tuvieron movimiento, cerrados o por cerrar (el más reciente primero)
   const mesesCierre = useMemo(() => {
-    const claves = new Set<string>(cierres.map((c) => c.mes));
-    for (const v of ventas) claves.add(claveMes(v.fecha));
-    for (const g of gastos) claves.add(claveMes(g.fecha));
+    const claves = new Set<string>([...cierres.map((c) => c.mes), ...h.porMes.map((m) => m.mes)]);
     return [...claves]
       .filter((c) => c < mesActual)
       .sort((a, b) => b.localeCompare(a))
-      .map((clave) => ({ clave, cierre: cierres.find((c) => c.mes === clave) ?? null, calculado: calcularMes(ventas, gastos, clave) }));
-  }, [ventas, gastos, cierres, mesActual]);
+      .map((clave) => ({ clave, cierre: cierres.find((c) => c.mes === clave) ?? null, calculado: delMes(clave) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [h, cierres, mesActual]);
 
-  const previa = mesACerrar ? calcularMes(ventas, gastos, mesACerrar) : null;
+  const previa = mesACerrar ? delMes(mesACerrar) : null;
 
   const confirmarCierre = async () => {
     if (!mesACerrar || cerrando) return;
@@ -85,19 +95,13 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
 
   // Ventas de los últimos 12 meses (sin anuladas), el mes actual al final
   const mensual = useMemo(() => {
-    const hoy = new Date();
     const meses = Array.from({ length: 12 }, (_, i) => {
-      const d = new Date(hoy.getFullYear(), hoy.getMonth() - 11 + i, 1);
-      return { anio: d.getFullYear(), mes: d.getMonth(), total: 0, actual: i === 11 };
+      const clave = mesDesplazado(mesActual, i - 11);
+      const [anio, mes] = clave.split('-').map(Number) as [number, number];
+      return { anio, mes: mes - 1, total: h.porMes.find((m) => m.mes === clave)?.totalVentas ?? 0, actual: i === 11 };
     });
-    for (const v of ventas) {
-      if (v.estado === 'anulada') continue;
-      const f = new Date(v.fecha);
-      const m = meses.find((x) => x.anio === f.getFullYear() && x.mes === f.getMonth());
-      if (m) m.total += Number(v.total_venta) || 0;
-    }
-    const actual = meses[11].total;
-    const anterior = meses[10].total;
+    const actual = meses[11]!.total;
+    const anterior = meses[10]!.total;
     return {
       meses,
       max: Math.max(1, ...meses.map((m) => m.total)),
@@ -105,9 +109,7 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
       actual,
       variacion: anterior > 0 ? ((actual - anterior) / anterior) * 100 : null,
     };
-  }, [ventas]);
-
-  const ultimas = ventas.slice(0, 50);
+  }, [h, mesActual]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -138,7 +140,7 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
               aria-label="Mes anterior"
               title="Mes anterior"
               disabled={mesVisto <= primerMes}
-              onClick={() => setMesVisto((m) => mesDesplazado(m, -1))}
+              onClick={() => setMesVisto(mesDesplazado(mesVisto, -1))}
               className="px-2.5"
             >
               <ChevronLeft className="h-5 w-5" aria-hidden="true" />
@@ -152,7 +154,7 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
               aria-label="Mes siguiente"
               title="Mes siguiente"
               disabled={mesVisto >= mesActual}
-              onClick={() => setMesVisto((m) => mesDesplazado(m, 1))}
+              onClick={() => setMesVisto(mesDesplazado(mesVisto, 1))}
               className="px-2.5"
             >
               <ChevronRight className="h-5 w-5" aria-hidden="true" />
@@ -269,13 +271,13 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
               {mesesCierre.map(({ clave, cierre, calculado }) => (
                 <Fila key={clave}>
                   <Td className="font-semibold capitalize">{nombreMes(clave)}</Td>
-                  <Td alinear="der" className="whitespace-nowrap font-bold tabular">{formatoMoneda(cierre ? cierre.total_ventas : calculado.total)}</Td>
-                  <Td alinear="der" className="whitespace-nowrap tabular">{formatoMoneda(cierre ? cierre.utilidad_neta : calculado.utilidad)}</Td>
+                  <Td alinear="der" className="whitespace-nowrap font-bold tabular">{formatoMoneda(cierre ? cierre.totalVentas : calculado.total)}</Td>
+                  <Td alinear="der" className="whitespace-nowrap tabular">{formatoMoneda(cierre ? cierre.utilidadNeta : calculado.utilidad)}</Td>
                   <Td>
                     {cierre ? (
                       <span className="flex flex-col items-start gap-1">
                         <Badge tono="exito">Cerrado</Badge>
-                        <span className="text-[13px] text-tinta-suave">{cierre.cerrado_por} · {formatoFecha(cierre.cerrado_en)}</span>
+                        <span className="text-[13px] text-tinta-suave">{cierre.cerradoPorNombre} · {formatoFecha(cierre.cerradoEn)}</span>
                       </span>
                     ) : (
                       <Badge tono="aviso">Por cerrar</Badge>
@@ -354,24 +356,24 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
             <tbody>
               {ultimas.map((v) => {
                 const anulada = v.estado === 'anulada';
-                const mayor = tipoPrecio(v) === 'mayorista';
+                const mayor = esPorMayor(v);
                 return (
                   <Fila key={v.id} className={anulada ? 'text-tinta-tenue' : undefined}>
                     <Td className="whitespace-nowrap text-tinta-suave tabular">{formatoFecha(v.fecha)}</Td>
-                    <Td className="font-semibold">{v.cliente_nombre}</Td>
+                    <Td className="font-semibold">{v.clienteNombre}</Td>
                     <Td>
                       <div className="flex flex-col items-start gap-1">
-                        <span className={anulada ? 'line-through' : 'font-semibold'}>{v.nombre_producto}</span>
+                        <span className={anulada ? 'line-through' : 'font-semibold'}>{textoItems(v)}</span>
                         {anulada ? <Badge tono="error">Anulada</Badge> : <Badge tono={mayor ? 'mayor' : 'neutro'}>{mayor ? 'Por mayor' : 'Detal'}</Badge>}
                       </div>
                     </Td>
-                    <Td alinear="der" className="font-semibold tabular">{v.cantidad}</Td>
-                    <Td alinear="der" className="whitespace-nowrap font-bold tabular">{formatoMoneda(v.total_venta)}</Td>
+                    <Td alinear="der" className="font-semibold tabular">{(v.items ?? []).reduce((a, i) => a + i.cantidad, 0)}</Td>
+                    <Td alinear="der" className="whitespace-nowrap font-bold tabular">{formatoMoneda(v.total)}</Td>
                     <Td alinear="der" className="whitespace-nowrap font-semibold text-exito-texto tabular">
-                      {anulada ? '—' : `+${formatoMoneda(v.ganancia_bruta)}`}
+                      {anulada ? '—' : `+${formatoMoneda(v.gananciaBruta)}`}
                     </Td>
-                    <Td className="capitalize">{v.metodo_pago}</Td>
-                    <Td className="text-tinta-suave">{v.vendedor}</Td>
+                    <Td className="capitalize">{v.metodoPago}</Td>
+                    <Td className="text-tinta-suave">{v.vendedorNombre}</Td>
                     <Td alinear="der">
                       <Button variante="fantasma" tamano="sm" onClick={() => onVerTicket(v)}>
                         <Receipt className="h-4 w-4" aria-hidden="true" />

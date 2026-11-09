@@ -1,26 +1,17 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { Download, Plus, RefreshCw } from 'lucide-react';
 import { Badge, Button, EmptyState, Fila, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
-import type { Producto, Venta } from '@/types';
+import { esPorMayor, textoItems } from '@/lib/ventas';
+import type { Dashboard, ResumenCaja, Venta } from '@/types/api';
 
 interface DashboardViewProps {
   nombreUsuario: string;
   esAdmin: boolean;
-  cajaAbierta: boolean;
-  ventas: Venta[];
+  dashboard: Dashboard;
+  /** Resumen de la caja abierta, o null si está cerrada. */
+  resumenCaja: ResumenCaja | null;
   ventasHoy: Venta[];
-  productos: Producto[];
-  totales: {
-    efectivoHoy: number;
-    transferenciaHoy: number;
-    dineroEnCaja: number;
-    efectivoEnCaja: number;
-    gastosHoy: number;
-    inversion: number;
-    valorComercial: number;
-  };
-  tipoPrecio: (v: Venta) => 'detal' | 'mayorista';
   procesandoAnulacion: boolean;
   actualizando?: boolean;
   onActualizar: () => void;
@@ -43,45 +34,19 @@ function saludo() {
 export function DashboardView(p: DashboardViewProps) {
   const primerNombre = p.nombreUsuario.split(' ')[0] || p.nombreUsuario;
   const fechaHoy = new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' });
+  const { hoy, inventario, stockBajo } = p.dashboard;
+  const cajaAbierta = !!p.resumenCaja;
 
-  // Ventas de los últimos 7 días (sin anuladas)
-  const semana = useMemo(() => {
-    const dias: { etiqueta: string; total: number; hoy: boolean }[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() - i);
-      const total = p.ventas
-        .filter((v) => v.estado !== 'anulada')
-        .filter((v) => {
-          const f = new Date(v.fecha);
-          return f.getFullYear() === d.getFullYear() && f.getMonth() === d.getMonth() && f.getDate() === d.getDate();
-        })
-        .reduce((acc, v) => acc + (Number(v.total_venta) || 0), 0);
-      dias.push({ etiqueta: i === 0 ? 'Hoy' : DIAS[d.getDay()], total, hoy: i === 0 });
-    }
-    const max = Math.max(1, ...dias.map((d) => d.total));
-    return { dias, max, total: dias.reduce((a, d) => a + d.total, 0) };
-  }, [p.ventas]);
-
-  const porReponer = useMemo(
-    () => p.productos.filter((x) => x.stock <= x.stock_minimo).sort((a, b) => a.stock / Math.max(1, a.stock_minimo) - b.stock / Math.max(1, b.stock_minimo)),
-    [p.productos]
-  );
-
-  const totalBultos = useMemo(
-    () => p.productos.reduce((acc, prod) => acc + (Number(prod.stock) || 0), 0),
-    [p.productos]
-  );
-
-  const vendidoHoy = p.totales.efectivoHoy + p.totales.transferenciaHoy;
+  const maxSemana = Math.max(1, ...p.dashboard.semana.map((d) => d.total));
+  const totalSemana = p.dashboard.semana.reduce((a, d) => a + d.total, 0);
+  const diaSemana = (dia: string) => DIAS[new Date(`${dia}T12:00:00`).getDay()];
 
   return (
     <div className="flex flex-col gap-7">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <span className="text-[15px] text-tinta-suave">
-            <span className="capitalize">{fechaHoy}</span> · caja {p.cajaAbierta ? 'abierta' : 'cerrada'}
+            <span className="capitalize">{fechaHoy}</span> · caja {cajaAbierta ? 'abierta' : 'cerrada'}
           </span>
           <h1 className="font-display text-[34px] font-extrabold leading-[1.05] tracking-[-0.03em] sm:text-[40px]">
             {saludo()}, {primerNombre}
@@ -91,7 +56,7 @@ export function DashboardView(p: DashboardViewProps) {
           <Button variante="secundario" onClick={p.onActualizar} disabled={p.actualizando} aria-label="Actualizar datos" title="Actualizar datos" className="px-3.5">
             <RefreshCw className={cn('h-5 w-5', p.actualizando && 'animate-spin')} aria-hidden="true" />
           </Button>
-          <Button variante="secundario" onClick={p.onIrCaja}>{p.cajaAbierta ? 'Cerrar caja' : 'Abrir caja'}</Button>
+          <Button variante="secundario" onClick={p.onIrCaja}>{cajaAbierta ? 'Cerrar caja' : 'Abrir caja'}</Button>
           <Button onClick={p.onNuevaVenta}>
             <Plus className="h-5 w-5" aria-hidden="true" />
             Nueva venta
@@ -102,48 +67,44 @@ export function DashboardView(p: DashboardViewProps) {
       {/* Resumen del día */}
       <section
         aria-label="Resumen del día"
-        className={cn(
-          'grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-2',
-          p.esAdmin ? 'xl:grid-cols-5' : 'xl:grid-cols-4'
-        )}
+        className={cn('grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-2', p.esAdmin ? 'xl:grid-cols-5' : 'xl:grid-cols-4')}
       >
         <StatCard
           tono="oscuro"
           etiqueta="Vendido hoy"
-          valor={formatoMoneda(vendidoHoy)}
-          detalle={`Efectivo ${formatoMoneda(p.totales.efectivoHoy)} · Transferencia ${formatoMoneda(p.totales.transferenciaHoy)}`}
+          valor={formatoMoneda(hoy.totalVentas)}
+          detalle={`Efectivo ${formatoMoneda(hoy.ventasEfectivo)} · Transferencia ${formatoMoneda(hoy.ventasTransferencia)}`}
         />
         <StatCard
-          etiqueta="Dinero en caja"
-          valor={formatoMoneda(p.totales.dineroEnCaja)}
-          detalle={`Efectivo ${formatoMoneda(p.totales.efectivoEnCaja)} · gastos ${formatoMoneda(p.totales.gastosHoy)}`}
+          etiqueta="Efectivo en caja"
+          valor={p.resumenCaja ? formatoMoneda(p.resumenCaja.dineroEsperado) : 'Caja cerrada'}
+          detalle={
+            p.resumenCaja
+              ? `Base ${formatoMoneda(p.resumenCaja.montoInicial)} · gastos ${formatoMoneda(p.resumenCaja.gastosEfectivo)}`
+              : 'Ábrela para empezar a vender'
+          }
         />
-        
-        {/* Total Inventario al Precio del Excel (Precio Venta Detal) */}
         <StatCard
-          etiqueta="Total inventario (Venta)"
-          valor={formatoMoneda(p.totales.valorComercial)}
-          detalle={`${totalBultos} bultos · ${p.productos.length} referencias`}
+          etiqueta="Total inventario (venta)"
+          valor={formatoMoneda(inventario.valorVenta)}
+          detalle={`${inventario.unidades} unidades · ${inventario.referencias} referencias`}
         />
-
-        {/* Inversión en bodega a Costo de Compra (Exclusivo Administrador) */}
-        {p.esAdmin && (
+        {p.esAdmin && inventario.inversion !== undefined && (
           <StatCard
             etiqueta="Inversión en bodega"
-            valor={formatoMoneda(p.totales.inversion)}
-            detalle={`Margen est. +${formatoMoneda(Math.max(0, p.totales.valorComercial - p.totales.inversion))}`}
+            valor={formatoMoneda(inventario.inversion)}
+            detalle={`Margen est. +${formatoMoneda(Math.max(0, inventario.valorVenta - inventario.inversion))}`}
           />
         )}
-
         <button
           type="button"
           onClick={p.onVerAlertas}
           className="group cursor-pointer text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-maiz"
         >
           <StatCard
-            tono={porReponer.length > 0 ? 'aviso' : 'claro'}
+            tono={stockBajo.total > 0 ? 'aviso' : 'claro'}
             etiqueta="Stock por reponer"
-            valor={`${porReponer.length} ${porReponer.length === 1 ? 'producto' : 'productos'}`}
+            valor={`${stockBajo.total} ${stockBajo.total === 1 ? 'producto' : 'productos'}`}
             detalle={<span className="font-semibold group-hover:underline">Ver cuáles →</span>}
             className="h-full"
           />
@@ -155,37 +116,41 @@ export function DashboardView(p: DashboardViewProps) {
         <Panel className="flex min-w-0 flex-[3_1_460px] flex-col gap-5 p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-xl font-bold">Ventas de la semana</h2>
-            <span className="text-[15px] text-tinta-suave tabular">Total {formatoMoneda(semana.total)}</span>
+            <span className="text-[15px] text-tinta-suave tabular">Total {formatoMoneda(totalSemana)}</span>
           </div>
           <div className="grid h-[220px] grid-cols-7 items-end gap-2.5 sm:gap-3.5">
-            {semana.dias.map((d, i) => (
-              <div key={i} className="flex h-full flex-col items-center justify-end gap-2" title={`${d.etiqueta}: ${formatoMoneda(d.total)}`}>
-                <div
-                  className={cn('barra-crecer w-full rounded-[8px_8px_4px_4px]', d.hoy ? 'bg-rojo' : 'bg-neutro-hover')}
-                  style={{ height: `${Math.max(3, (d.total / semana.max) * 100)}%`, animationDelay: `${i * 50}ms` }}
-                />
-                <span className={cn('text-[13px]', d.hoy ? 'font-bold text-tinta' : 'text-tinta-suave')}>{d.etiqueta}</span>
-              </div>
-            ))}
+            {p.dashboard.semana.map((d, i) => {
+              const esHoy = i === p.dashboard.semana.length - 1;
+              const etiqueta = esHoy ? 'Hoy' : diaSemana(d.dia);
+              return (
+                <div key={d.dia} className="flex h-full flex-col items-center justify-end gap-2" title={`${etiqueta}: ${formatoMoneda(d.total)}`}>
+                  <div
+                    className={cn('barra-crecer w-full rounded-[8px_8px_4px_4px]', esHoy ? 'bg-rojo' : 'bg-neutro-hover')}
+                    style={{ height: `${Math.max(3, (d.total / maxSemana) * 100)}%`, animationDelay: `${i * 50}ms` }}
+                  />
+                  <span className={cn('text-[13px]', esHoy ? 'font-bold text-tinta' : 'text-tinta-suave')}>{etiqueta}</span>
+                </div>
+              );
+            })}
           </div>
         </Panel>
 
         {/* Reponer pronto */}
         <Panel className="flex min-w-0 flex-[2_1_320px] flex-col gap-4 p-6">
           <h2 className="text-xl font-bold">Reponer pronto</h2>
-          {porReponer.length === 0 ? (
+          {stockBajo.productos.length === 0 ? (
             <EmptyState titulo="Todo en orden" descripcion="Ningún producto está por debajo de su mínimo." className="flex-1" />
           ) : (
             <ul className="flex flex-col gap-4">
-              {porReponer.slice(0, 5).map((x) => {
+              {stockBajo.productos.map((x) => {
                 const agotado = x.stock <= 0;
-                const pct = Math.min(100, Math.max(3, (x.stock / Math.max(1, x.stock_minimo * 2)) * 100));
+                const pct = Math.min(100, Math.max(3, (x.stock / Math.max(1, x.stockMinimo * 2)) * 100));
                 return (
                   <li key={x.id} className="flex flex-col gap-2">
                     <div className="flex justify-between gap-3 text-[15px]">
                       <span className="truncate font-semibold">{x.nombre}</span>
                       <span className={cn('shrink-0 font-bold tabular', agotado ? 'text-rojo-oscuro' : 'text-aviso-texto')}>
-                        {agotado ? 'Agotado' : `${x.stock} de ${x.stock_minimo} mín.`}
+                        {agotado ? 'Agotado' : `${x.stock} de ${x.stockMinimo} mín.`}
                       </span>
                     </div>
                     <div className="h-2 rounded bg-hundido">
@@ -196,7 +161,7 @@ export function DashboardView(p: DashboardViewProps) {
               })}
             </ul>
           )}
-          {porReponer.length > 0 && (
+          {stockBajo.total > 0 && (
             <button type="button" onClick={p.onVerAlertas} className="mt-auto cursor-pointer self-start text-[15px] font-semibold text-rojo hover:text-rojo-oscuro">
               Ver todos los productos por reponer
             </button>
@@ -222,9 +187,10 @@ export function DashboardView(p: DashboardViewProps) {
           <Tabla minAncho={820}>
             <thead>
               <tr>
+                <Th>Ticket</Th>
                 <Th>Hora</Th>
                 <Th>Cliente</Th>
-                <Th>Producto</Th>
+                <Th>Productos</Th>
                 <Th>Precio</Th>
                 <Th>Pago</Th>
                 <Th alinear="der">Total</Th>
@@ -232,22 +198,23 @@ export function DashboardView(p: DashboardViewProps) {
               </tr>
             </thead>
             <tbody>
-              {p.ventasHoy.slice(0, 10).map((v) => {
+              {p.ventasHoy.map((v) => {
                 const anulada = v.estado === 'anulada';
-                const mayor = p.tipoPrecio(v) === 'mayorista';
+                const mayor = esPorMayor(v);
                 return (
                   <Fila key={v.id} className={anulada ? 'text-tinta-tenue' : undefined}>
+                    <Td className="tabular">#{v.numero}</Td>
                     <Td className="text-tinta-suave tabular">{new Date(v.fecha).toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit' })}</Td>
-                    <Td className="font-semibold">{v.cliente_nombre}</Td>
-                    <Td className={anulada ? 'line-through' : undefined}>{v.nombre_producto} × {v.cantidad}</Td>
+                    <Td className="font-semibold">{v.clienteNombre}</Td>
+                    <Td className={anulada ? 'line-through' : undefined}>{textoItems(v)}</Td>
                     <Td>{anulada ? <Badge tono="error">Anulada</Badge> : <Badge tono={mayor ? 'mayor' : 'neutro'}>{mayor ? 'Por mayor' : 'Detal'}</Badge>}</Td>
-                    <Td className="capitalize">{v.metodo_pago}</Td>
-                    <Td alinear="der" className={cn('whitespace-nowrap font-bold tabular', anulada && 'line-through')}>{formatoMoneda(v.total_venta)}</Td>
+                    <Td className="capitalize">{v.metodoPago}</Td>
+                    <Td alinear="der" className={cn('whitespace-nowrap font-bold tabular', anulada && 'line-through')}>{formatoMoneda(v.total)}</Td>
                     <Td alinear="der">
                       {anulada ? (
                         <Button variante="fantasma" tamano="sm" onClick={() => p.onVerMotivo(v)}>Ver motivo</Button>
                       ) : (
-                        <Button variante="peligro" tamano="sm" disabled={p.procesandoAnulacion} onClick={() => p.onAnular(v)}>Anular</Button>
+                        p.esAdmin && <Button variante="peligro" tamano="sm" disabled={p.procesandoAnulacion} onClick={() => p.onAnular(v)}>Anular</Button>
                       )}
                     </Td>
                   </Fila>

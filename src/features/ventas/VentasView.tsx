@@ -1,43 +1,40 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { Download } from 'lucide-react';
+import React from 'react';
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { Badge, Button, EmptyState, Fila, PageHeader, Panel, SearchInput, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
-import type { Venta } from '@/types';
+import { esPorMayor, textoItems } from '@/lib/ventas';
+import type { Pagina, Venta } from '@/types/api';
+
+export type Periodo = 'hoy' | 'todas';
 
 interface VentasViewProps {
-  ventas: Venta[];
-  esDeHoy: (fecha: string) => boolean;
-  tipoPrecio: (v: Venta) => 'detal' | 'mayorista';
+  pagina: Pagina<Venta>;
+  periodo: Periodo;
+  busqueda: string;
+  cargando: boolean;
+  esAdmin: boolean;
   procesandoAnulacion: boolean;
-  onExportar: (soloHoy: boolean) => void;
+  onPeriodo: (p: Periodo) => void;
+  onBusqueda: (q: string) => void;
+  onPagina: (n: number) => void;
+  onExportar: () => void;
   onAnular: (v: Venta) => void;
   onVerMotivo: (v: Venta) => void;
 }
 
-export function VentasView({ ventas, esDeHoy, tipoPrecio, procesandoAnulacion, onExportar, onAnular, onVerMotivo }: VentasViewProps) {
-  const [periodo, setPeriodo] = useState<'hoy' | 'todas'>('hoy');
-  const [busqueda, setBusqueda] = useState('');
-
-  const deHoy = useMemo(() => ventas.filter((v) => esDeHoy(v.fecha)), [ventas, esDeHoy]);
-
-  const filtradas = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    return (periodo === 'hoy' ? deHoy : ventas).filter(
-      (v) => !q || v.nombre_producto.toLowerCase().includes(q) || v.cliente_nombre.toLowerCase().includes(q)
-    );
-  }, [ventas, deHoy, periodo, busqueda]);
-
-  const totalValido = filtradas.filter((v) => v.estado !== 'anulada').reduce((a, v) => a + (Number(v.total_venta) || 0), 0);
+/** Historial de ventas. La búsqueda, el filtro y la paginación los hace la API. */
+export function VentasView(p: VentasViewProps) {
+  const { datos, total, pagina, totalPaginas } = p.pagina;
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         titulo="Ventas"
-        descripcion={`${filtradas.length} ${filtradas.length === 1 ? 'venta' : 'ventas'} · ${formatoMoneda(totalValido)} vendidos${periodo === 'hoy' ? ' hoy' : ''}`}
+        descripcion={`${total} ${total === 1 ? 'venta' : 'ventas'}${p.periodo === 'hoy' ? ' hoy' : ' en el historial'}`}
         acciones={
-          <Button variante="secundario" onClick={() => onExportar(periodo === 'hoy')}>
+          <Button variante="secundario" onClick={p.onExportar}>
             <Download className="h-5 w-5" aria-hidden="true" />
             Exportar a Excel
           </Button>
@@ -45,20 +42,20 @@ export function VentasView({ ventas, esDeHoy, tipoPrecio, procesandoAnulacion, o
       />
 
       <div className="flex flex-wrap items-center gap-2.5">
-        <SearchInput etiqueta="Buscar venta" placeholder="Buscar por cliente o producto" valor={busqueda} onCambiar={setBusqueda} />
+        <SearchInput etiqueta="Buscar venta" placeholder="Buscar por cliente o número de ticket" valor={p.busqueda} onCambiar={p.onBusqueda} />
         <div role="group" aria-label="Periodo" className="flex rounded-control bg-neutro p-1">
           {([
-            ['hoy', `Hoy (${deHoy.length})`],
-            ['todas', `Todo el historial (${ventas.length})`],
+            ['hoy', 'Hoy'],
+            ['todas', 'Todo el historial'],
           ] as const).map(([valor, texto]) => (
             <button
               key={valor}
               type="button"
-              aria-pressed={periodo === valor}
-              onClick={() => setPeriodo(valor)}
+              aria-pressed={p.periodo === valor}
+              onClick={() => p.onPeriodo(valor)}
               className={cn(
                 'h-10 cursor-pointer rounded-lg px-4 text-sm font-semibold transition-colors',
-                periodo === valor ? 'bg-superficie text-tinta shadow-[0_1px_2px_rgba(23,19,15,0.12)]' : 'text-tinta-suave hover:text-tinta'
+                p.periodo === valor ? 'bg-white text-tinta shadow-sm' : 'text-tinta-suave hover:text-tinta',
               )}
             >
               {texto}
@@ -67,56 +64,51 @@ export function VentasView({ ventas, esDeHoy, tipoPrecio, procesandoAnulacion, o
         </div>
       </div>
 
-      <Panel>
-        {filtradas.length === 0 ? (
+      <Panel className={cn(p.cargando && 'opacity-60 transition-opacity')}>
+        {datos.length === 0 ? (
           <EmptyState
             className="m-6"
-            titulo={periodo === 'hoy' && !busqueda ? 'Aún no hay ventas hoy' : 'Ninguna venta coincide'}
-            descripcion={periodo === 'hoy' && !busqueda ? 'Las ventas del punto de venta aparecerán aquí.' : 'Prueba con otro nombre o mira todo el historial.'}
+            titulo={p.busqueda ? 'Sin resultados' : 'No hay ventas'}
+            descripcion={p.busqueda ? 'Prueba con otro nombre o número de ticket.' : 'Las ventas del punto de venta aparecerán aquí.'}
           />
         ) : (
-          <Tabla minAncho={1060} className="max-h-[640px] overflow-y-auto">
+          <Tabla minAncho={900}>
             <thead>
               <tr>
+                <Th>Ticket</Th>
                 <Th>Fecha</Th>
                 <Th>Cliente</Th>
-                <Th>Producto</Th>
-                <Th alinear="der">Cant.</Th>
-                <Th alinear="der">Precio unit.</Th>
-                <Th alinear="der">Total</Th>
+                <Th>Productos</Th>
+                <Th>Precio</Th>
                 <Th>Pago</Th>
                 <Th>Vendedor</Th>
+                <Th alinear="der">Total</Th>
                 <Th alinear="der"><span className="sr-only">Acciones</span></Th>
               </tr>
             </thead>
             <tbody>
-              {filtradas.map((v) => {
+              {datos.map((v) => {
                 const anulada = v.estado === 'anulada';
-                const mayor = tipoPrecio(v) === 'mayorista';
-                const fecha = new Date(v.fecha);
+                const mayor = esPorMayor(v);
                 return (
                   <Fila key={v.id} className={anulada ? 'text-tinta-tenue' : undefined}>
+                    <Td className="tabular">#{v.numero}</Td>
                     <Td className="whitespace-nowrap text-tinta-suave tabular">
-                      {fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
-                      <span className="block text-[13px]">{fecha.toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit' })}</span>
+                      {new Date(v.fecha).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
                     </Td>
-                    <Td className="font-semibold">{v.cliente_nombre}</Td>
-                    <Td>
-                      <div className="flex flex-col items-start gap-1">
-                        <span className={anulada ? 'line-through' : 'font-semibold'}>{v.nombre_producto}</span>
-                        {anulada ? <Badge tono="error">Anulada</Badge> : <Badge tono={mayor ? 'mayor' : 'neutro'}>{mayor ? 'Por mayor' : 'Detal'}</Badge>}
-                      </div>
-                    </Td>
-                    <Td alinear="der" className="font-semibold tabular">{v.cantidad}</Td>
-                    <Td alinear="der" className="whitespace-nowrap tabular">{formatoMoneda(v.precio_unitario)}</Td>
-                    <Td alinear="der" className={cn('whitespace-nowrap font-bold tabular', anulada && 'line-through')}>{formatoMoneda(v.total_venta)}</Td>
-                    <Td className="capitalize">{v.metodo_pago}</Td>
-                    <Td className="text-tinta-suave">{v.vendedor}</Td>
+                    <Td className="font-semibold">{v.clienteNombre}</Td>
+                    <Td className={anulada ? 'line-through' : undefined}>{textoItems(v)}</Td>
+                    <Td>{anulada ? <Badge tono="error">Anulada</Badge> : <Badge tono={mayor ? 'mayor' : 'neutro'}>{mayor ? 'Por mayor' : 'Detal'}</Badge>}</Td>
+                    <Td className="capitalize">{v.metodoPago}</Td>
+                    <Td className="text-tinta-suave">{v.vendedorNombre}</Td>
+                    <Td alinear="der" className={cn('whitespace-nowrap font-bold tabular', anulada && 'line-through')}>{formatoMoneda(v.total)}</Td>
                     <Td alinear="der">
                       {anulada ? (
-                        <Button variante="fantasma" tamano="sm" onClick={() => onVerMotivo(v)}>Ver motivo</Button>
+                        <Button variante="fantasma" tamano="sm" onClick={() => p.onVerMotivo(v)}>Ver motivo</Button>
                       ) : (
-                        <Button variante="peligro" tamano="sm" disabled={procesandoAnulacion} onClick={() => onAnular(v)}>Anular</Button>
+                        p.esAdmin && (
+                          <Button variante="peligro" tamano="sm" disabled={p.procesandoAnulacion} onClick={() => p.onAnular(v)}>Anular</Button>
+                        )
                       )}
                     </Td>
                   </Fila>
@@ -126,6 +118,20 @@ export function VentasView({ ventas, esDeHoy, tipoPrecio, procesandoAnulacion, o
           </Tabla>
         )}
       </Panel>
+
+      {totalPaginas > 1 && (
+        <nav aria-label="Páginas" className="flex items-center justify-center gap-3">
+          <Button variante="secundario" tamano="sm" disabled={pagina <= 1} onClick={() => p.onPagina(pagina - 1)} aria-label="Página anterior">
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+          </Button>
+          <span className="text-sm text-tinta-suave tabular">
+            Página {pagina} de {totalPaginas}
+          </span>
+          <Button variante="secundario" tamano="sm" disabled={pagina >= totalPaginas} onClick={() => p.onPagina(pagina + 1)} aria-label="Página siguiente">
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </nav>
+      )}
     </div>
   );
 }

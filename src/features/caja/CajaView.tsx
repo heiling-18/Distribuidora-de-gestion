@@ -4,10 +4,10 @@ import React from 'react';
 import { Lock, Receipt, Wallet } from 'lucide-react';
 import { Button, EmptyState, Field, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
-import type { CierreCaja, SesionCaja } from '@/types';
+import type { Caja, CierreCaja } from '@/types/api';
 
 interface CajaViewProps {
-  caja: SesionCaja | null;
+  caja: Caja | null;
   totales: {
     efectivoHoy: number;
     transferenciaHoy: number;
@@ -54,8 +54,7 @@ export function CajaView(p: CajaViewProps) {
           <form onSubmit={p.onAbrir} className="flex w-full max-w-sm flex-col gap-4 text-left">
             <Field
               etiqueta="Base en efectivo"
-              type="number"
-              inputMode="numeric"
+              moneda
               required
               min="0"
               placeholder="300000"
@@ -78,7 +77,7 @@ export function CajaView(p: CajaViewProps) {
             <h2 className="mb-4 text-xl font-bold">Cómo se calcula el efectivo</h2>
             <dl className="flex max-w-xl flex-col text-[15px]">
               {[
-                ['Base de apertura', formatoMoneda(p.caja.monto_inicial), ''],
+                ['Base de apertura', formatoMoneda(p.caja.montoInicial), ''],
                 ['Ventas en efectivo', `+ ${formatoMoneda(p.totales.efectivoHoy)}`, 'text-exito-texto'],
                 ['Gastos del día', `− ${formatoMoneda(p.totales.gastosHoy)}`, 'text-rojo-oscuro'],
               ].map(([etiqueta, valor, color]) => (
@@ -122,18 +121,18 @@ export function CajaView(p: CajaViewProps) {
               </tr>
             </thead>
             <tbody>
-              {p.historial.map((c, i) => (
-                <Fila key={`${c.hora_cierre}-${i}`}>
+              {p.historial.map((c) => (
+                <Fila key={c.id}>
                   <Td className="whitespace-nowrap text-tinta-suave tabular">
-                    {new Date(c.hora_cierre).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+                    {new Date(c.cerradoEn).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
                   </Td>
                   <Td className="font-semibold">{c.responsable}</Td>
-                  <Td alinear="der" className="tabular">{formatoMoneda(c.monto_inicial)}</Td>
-                  <Td alinear="der" className="text-exito-texto tabular">+{formatoMoneda(c.ventas_efectivo)}</Td>
-                  <Td alinear="der" className="text-mayor tabular">+{formatoMoneda(c.ventas_transferencia)}</Td>
-                  <Td alinear="der" className="text-rojo-oscuro tabular">−{formatoMoneda(c.total_gastos)}</Td>
-                  <Td alinear="der" className="tabular">{formatoMoneda(c.dinero_esperado)}</Td>
-                  <Td alinear="der" className="font-bold tabular">{formatoMoneda(c.dinero_real)}</Td>
+                  <Td alinear="der" className="tabular">{formatoMoneda(c.montoInicial)}</Td>
+                  <Td alinear="der" className="text-exito-texto tabular">+{formatoMoneda(c.ventasEfectivo)}</Td>
+                  <Td alinear="der" className="text-mayor tabular">+{formatoMoneda(c.ventasTransferencia)}</Td>
+                  <Td alinear="der" className="text-rojo-oscuro tabular">−{formatoMoneda(c.gastosEfectivo)}</Td>
+                  <Td alinear="der" className="tabular">{formatoMoneda(c.dineroEsperado)}</Td>
+                  <Td alinear="der" className="font-bold tabular">{formatoMoneda(c.dineroReal)}</Td>
                   <Td
                     alinear="der"
                     className={cn('font-bold tabular', c.diferencia < 0 ? 'text-rojo-oscuro' : c.diferencia > 0 ? 'text-exito-texto' : 'text-tinta-suave')}

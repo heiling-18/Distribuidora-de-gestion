@@ -52,8 +52,7 @@ export function CierreCajaModal(p: CierreCajaModalProps) {
 
       <Field
         etiqueta="Efectivo contado"
-        type="number"
-        inputMode="numeric"
+        moneda
         required
         min="0"
         value={p.contado}

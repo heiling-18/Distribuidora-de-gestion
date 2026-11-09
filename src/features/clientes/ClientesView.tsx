@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { MessageCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button, EmptyState, Fila, PageHeader, Panel, SearchInput, Tabla, Td, Th } from '@/components/ui';
-import type { Cliente } from '@/types';
+import type { Cliente } from '@/types/api';
 
 interface ClientesViewProps {
   clientes: Cliente[];
@@ -19,7 +19,7 @@ export function ClientesView({ clientes, esAdmin, onNuevo, onEditar, onEliminar 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     if (!q) return clientes;
-    return clientes.filter((c) => c.documento.includes(q) || c.nombre.toLowerCase().includes(q));
+    return clientes.filter((c) => (c.documento ?? '').includes(q) || c.nombre.toLowerCase().includes(q));
   }, [clientes, busqueda]);
 
   return (
@@ -62,7 +62,7 @@ export function ClientesView({ clientes, esAdmin, onNuevo, onEditar, onEliminar 
                     <Td>
                       <div className="flex flex-col gap-0.5">
                         <strong className="font-semibold">{c.nombre}</strong>
-                        <span className="text-[13px] text-tinta-suave tabular">C.C. / NIT {c.documento}</span>
+                        {c.documento && <span className="text-[13px] text-tinta-suave tabular">C.C. / NIT {c.documento}</span>}
                       </div>
                     </Td>
                     <Td>
