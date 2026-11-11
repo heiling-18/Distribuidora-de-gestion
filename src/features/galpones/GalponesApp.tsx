@@ -9,8 +9,11 @@ import type { CambioSeccion } from '@/lib/modulos';
 import type { Usuario } from '@/types';
 import {
   MODULOS_GALPONES,
+  costoAlimento,
   formatoDia,
   formatoKg,
+  formatoPesos,
+  precioDelRegistro,
   textoCartones,
   type Galpon,
   type ModuloGalpones,
@@ -33,19 +36,28 @@ interface GalponesAppProps {
 /** Normaliza numéricos que Supabase devuelve como texto (numeric) */
 const aGalpon = (g: Galpon): Galpon => ({
   ...g,
+  // Sin la migración de levante las columnas no existen: se toman como postura sin precio
+  tipo: g.tipo === 'levante' ? 'levante' : 'postura',
   aves_iniciales: Number(g.aves_iniciales),
   edad_semanas_llegada: Number(g.edad_semanas_llegada),
   gramos_ave_dia: Number(g.gramos_ave_dia),
+  precio_bulto: Number(g.precio_bulto) || 0,
 });
 const aRegistro = (r: RegistroGalpon): RegistroGalpon => ({
   ...r,
   huevos: Number(r.huevos),
   muertas: Number(r.muertas),
   alimento_kg: Number(r.alimento_kg),
+  precio_bulto: r.precio_bulto == null ? null : Number(r.precio_bulto),
 });
 
+/** Columna nueva que no existe todavía: falta ejecutar la migración de levante */
+const faltaColumnaLevante = (mensaje?: string) => /tipo|precio_bulto/.test(mensaje || '') && /column|columna|schema cache/i.test(mensaje || '');
+const AVISO_MIGRACION_LEVANTE =
+  'Falta activar los galpones de levante en la base de datos. Ejecuta en Supabase el archivo supabase/migrations/20261110000000_galpones_levante.sql.';
+
 /**
- * Sección GALPONES: producción de huevos.
+ * Sección GALPONES: gallinas de postura (huevos) y pollitas de levante (solo alimento y mortalidad).
  * Solo lee y escribe las tablas gal_galpones y gal_registros;
  * nunca toca los datos de la Distribuidora.
  */
@@ -103,9 +115,12 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
     if (procesandoRegistro) return false;
     setProcesandoRegistro(true);
     try {
+      // Sin precio no se manda la columna: así el registro sigue funcionando aunque falte la migración de levante
+      const { precio_bulto, ...sinPrecio } = datos;
+      const fila = precio_bulto > 0 ? datos : sinPrecio;
       const { data, error } = await supabase
         .from('gal_registros')
-        .upsert([{ ...datos, registrado_por: usuario.nombre }], { onConflict: 'galpon_id,fecha' })
+        .upsert([{ ...fila, registrado_por: usuario.nombre }], { onConflict: 'galpon_id,fecha' })
         .select()
         .single();
       if (error || !data) {
@@ -114,7 +129,9 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
           'error',
           permiso
             ? 'Solo puedes anotar o corregir el día de hoy. Para otros días, pídeselo al administrador.'
-            : 'No se pudo guardar el registro: ' + (error?.message || 'sin respuesta del servidor')
+            : faltaColumnaLevante(error?.message)
+              ? AVISO_MIGRACION_LEVANTE
+              : 'No se pudo guardar el registro: ' + (error?.message || 'sin respuesta del servidor')
         );
         return false;
       }
@@ -123,7 +140,13 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
         [nuevo, ...prev.filter((r) => r.id !== nuevo.id)].sort((a, b) => b.fecha.localeCompare(a.fecha) || b.id - a.id)
       );
       const galpon = galpones.find((g) => g.id === nuevo.galpon_id);
-      notificar('exito', `Guardado ${galpon?.nombre ?? ''} · ${formatoDia(nuevo.fecha)}: ${textoCartones(nuevo.huevos)}, ${nuevo.muertas} muertas, ${formatoKg(nuevo.alimento_kg)} de alimento.`);
+      const precio = precioDelRegistro(nuevo, galpon);
+      const partes = [
+        galpon?.tipo === 'levante' ? null : textoCartones(nuevo.huevos),
+        `${nuevo.muertas} muertas`,
+        `${formatoKg(nuevo.alimento_kg)} de alimento${precio > 0 ? ` (${formatoPesos(costoAlimento(nuevo.alimento_kg, precio))})` : ''}`,
+      ].filter(Boolean);
+      notificar('exito', `Guardado ${galpon?.nombre ?? ''} · ${formatoDia(nuevo.fecha)}: ${partes.join(', ')}.`);
       return true;
     } finally {
       setProcesandoRegistro(false);
@@ -152,7 +175,10 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
         : supabase.from('gal_galpones').insert([datos]).select().single();
       const { data, error } = await consulta;
       if (error || !data) {
-        notificar('error', 'No se pudo guardar el galpón: ' + (error?.message || 'sin respuesta del servidor'));
+        notificar(
+          'error',
+          faltaColumnaLevante(error?.message) ? AVISO_MIGRACION_LEVANTE : 'No se pudo guardar el galpón: ' + (error?.message || 'sin respuesta del servidor')
+        );
         return;
       }
       const g = aGalpon(data);

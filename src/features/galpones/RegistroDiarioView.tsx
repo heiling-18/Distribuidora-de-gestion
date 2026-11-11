@@ -5,12 +5,17 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { Alert, Badge, Button, EmptyState, Field, Fila, PageHeader, Panel, Tabla, Td, Th, cn } from '@/components/ui';
 import {
   alimentoSugeridoKg,
+  costoAlimento,
   formatoBultos,
   formatoDia,
   formatoEntero,
   formatoKg,
+  formatoPesos,
+  formatoPesosFino,
+  gramosPorAve,
   hoyLocal,
   kgABultos,
+  precioDelRegistro,
   textoCartones,
   type Galpon,
   type RegistroGalpon,
@@ -22,6 +27,8 @@ export interface DatosRegistro {
   huevos: number;
   muertas: number;
   alimento_kg: number;
+  /** Precio del bulto con el que se calcula el gasto de ese día */
+  precio_bulto: number;
   notas: string | null;
 }
 
@@ -64,7 +71,10 @@ export function RegistroDiarioView(p: RegistroDiarioViewProps) {
   };
 
   const lista = p.registros.filter((r) => filtro === 'todos' || r.galpon_id === filtro);
-  const nombreGalpon = (id: number) => p.galpones.find((g) => g.id === id)?.nombre ?? '—';
+  const galponDe = (id: number) => p.galpones.find((g) => g.id === id);
+  const nombreGalpon = (id: number) => galponDe(id)?.nombre ?? '—';
+  // Las columnas de huevos solo se muestran si en la lista hay algún galpón de postura
+  const conHuevos = lista.some((r) => galponDe(r.galpon_id)?.tipo !== 'levante');
 
   if (activos.length === 0) {
     return (
@@ -77,7 +87,7 @@ export function RegistroDiarioView(p: RegistroDiarioViewProps) {
 
   return (
     <div className="flex flex-col gap-7">
-      <PageHeader titulo="Registro diario" descripcion="Huevos recogidos, gallinas muertas y alimento echado en cada galpón." />
+      <PageHeader titulo="Registro diario" descripcion="Alimento echado y aves muertas de cada galpón; en los de postura, también los huevos." />
 
       <Panel className="flex flex-col gap-5 p-6">
         {/* Galpón */}
@@ -100,6 +110,7 @@ export function RegistroDiarioView(p: RegistroDiarioViewProps) {
                   )}
                 >
                   {g.nombre}
+                  {g.tipo === 'levante' && <span className="ml-1.5 text-sm font-semibold opacity-80">· levante</span>}
                 </button>
               );
             })}
@@ -159,10 +170,11 @@ export function RegistroDiarioView(p: RegistroDiarioViewProps) {
               <tr>
                 <Th>Fecha</Th>
                 <Th>Galpón</Th>
-                <Th alinear="der">Huevos</Th>
-                <Th>Cartones</Th>
+                {conHuevos && <Th alinear="der">Huevos</Th>}
+                {conHuevos && <Th>Cartones</Th>}
                 <Th alinear="der">Muertas</Th>
                 <Th alinear="der">Alimento</Th>
+                <Th alinear="der">Gasto</Th>
                 <Th>Anotó</Th>
                 <Th alinear="der"><span className="sr-only">Acciones</span></Th>
               </tr>
@@ -170,16 +182,20 @@ export function RegistroDiarioView(p: RegistroDiarioViewProps) {
             <tbody>
               {lista.map((r) => {
                 const puedeEditar = p.esAdmin || r.fecha === hoy;
+                const g = galponDe(r.galpon_id);
+                const levante = g?.tipo === 'levante';
+                const precio = precioDelRegistro(r, g);
                 return (
                   <Fila key={r.id}>
                     <Td className="whitespace-nowrap tabular">
                       {formatoDia(r.fecha)} {r.fecha === hoy && <Badge tono="exito" className="ml-1">Hoy</Badge>}
                     </Td>
                     <Td className="font-semibold">{nombreGalpon(r.galpon_id)}</Td>
-                    <Td alinear="der" className="font-bold tabular">{formatoEntero(r.huevos)}</Td>
-                    <Td className="whitespace-nowrap text-tinta-suave tabular">{textoCartones(r.huevos)}</Td>
+                    {conHuevos && <Td alinear="der" className="font-bold tabular">{levante ? '—' : formatoEntero(r.huevos)}</Td>}
+                    {conHuevos && <Td className="whitespace-nowrap text-tinta-suave tabular">{levante ? 'Levante' : textoCartones(r.huevos)}</Td>}
                     <Td alinear="der" className={cn('tabular', r.muertas > 0 && 'font-bold text-rojo-oscuro')}>{r.muertas}</Td>
                     <Td alinear="der" className="whitespace-nowrap tabular">{formatoKg(r.alimento_kg)}</Td>
+                    <Td alinear="der" className="whitespace-nowrap tabular">{precio > 0 ? formatoPesos(costoAlimento(r.alimento_kg, precio)) : '—'}</Td>
                     <Td className="text-tinta-suave">{r.registrado_por || '—'}</Td>
                     <Td alinear="der" className="whitespace-nowrap">
                       {puedeEditar && (
@@ -223,7 +239,10 @@ function FormularioDia({ galpon, fecha, existente, vivasInicioDia, sugeridoKg, p
   const [notas, setNotas] = useState(existente?.notas ?? '');
   const [error, setError] = useState('');
 
-  const nHuevos = Number(huevos) || 0;
+  const levante = galpon.tipo === 'levante';
+  // Corregir un día viejo conserva el precio de ese día; uno nuevo usa el precio actual del galpón
+  const precio = existente?.precio_bulto ?? galpon.precio_bulto;
+  const nHuevos = levante ? 0 : Number(huevos) || 0;
   const nMuertas = Number(muertas) || 0;
   const nAlimento = Number(alimento) || 0;
   const vivasDespues = Math.max(0, vivasInicioDia - nMuertas);
@@ -232,9 +251,9 @@ function FormularioDia({ galpon, fecha, existente, vivasInicioDia, sugeridoKg, p
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const enteros = [huevos || '0', muertas || '0'];
+    const enteros = levante ? [muertas || '0'] : [huevos || '0', muertas || '0'];
     if (enteros.some((v) => !/^\d+$/.test(v.trim()))) {
-      setError('Huevos y gallinas muertas deben ser números enteros (sin puntos ni comas).');
+      setError(levante ? 'Las aves muertas deben ser un número entero (sin puntos ni comas).' : 'Huevos y gallinas muertas deben ser números enteros (sin puntos ni comas).');
       return;
     }
     if (nMuertas > vivasInicioDia) {
@@ -251,6 +270,7 @@ function FormularioDia({ galpon, fecha, existente, vivasInicioDia, sugeridoKg, p
       huevos: nHuevos,
       muertas: nMuertas,
       alimento_kg: Math.round(nAlimento * 100) / 100,
+      precio_bulto: precio,
       notas: notas.trim() || null,
     });
   };
@@ -263,7 +283,8 @@ function FormularioDia({ galpon, fecha, existente, vivasInicioDia, sugeridoKg, p
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className={cn('grid grid-cols-1 gap-4', levante ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}>
+        {!levante && (
         <Field
           etiqueta="Huevos recogidos"
           type="number"
@@ -276,8 +297,9 @@ function FormularioDia({ galpon, fecha, existente, vivasInicioDia, sugeridoKg, p
           ayuda={nHuevos > 0 ? `= ${textoCartones(nHuevos)}` : 'Se pasan solos a cartones de 30'}
           className="tabular"
         />
+        )}
         <Field
-          etiqueta="Gallinas muertas"
+          etiqueta={levante ? 'Aves muertas' : 'Gallinas muertas'}
           type="number"
           inputMode="numeric"
           min="0"
@@ -301,6 +323,30 @@ function FormularioDia({ galpon, fecha, existente, vivasInicioDia, sugeridoKg, p
       </div>
 
       <Field etiqueta="Notas (opcional)" placeholder="Ej.: se cambió el agua, llegó el veterinario" value={notas} onChange={(e) => setNotas(e.target.value)} />
+
+      <dl className="grid grid-cols-2 gap-x-5 gap-y-3 rounded-campo bg-hundido px-5 py-4 text-[15px] sm:grid-cols-4">
+        <div className="flex flex-col gap-0.5">
+          <dt className="text-tinta-suave">Aves vivas</dt>
+          <dd className="font-bold tabular">{formatoEntero(vivasDespues)}</dd>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <dt className="text-tinta-suave">Comió cada ave</dt>
+          <dd className="font-bold tabular">{formatoEntero(gramosPorAve(nAlimento, vivasInicioDia))} g</dd>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <dt className="text-tinta-suave">Gasto del día</dt>
+          <dd className="font-bold tabular">{precio > 0 ? formatoPesos(costoAlimento(nAlimento, precio)) : 'Sin precio'}</dd>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <dt className="text-tinta-suave">Gasto por ave</dt>
+          <dd className="font-bold tabular">
+            {precio > 0 && vivasInicioDia > 0 ? formatoPesosFino(costoAlimento(nAlimento, precio) / vivasInicioDia) : '—'}
+          </dd>
+        </div>
+      </dl>
+      {precio <= 0 && (
+        <p className="-mt-2 text-sm text-tinta-suave">Para ver el gasto, el administrador debe poner el precio del bulto en el menú Galpones → Editar.</p>
+      )}
 
       <div className="rounded-campo bg-hundido px-5 py-4 text-[15px]">
         <span className="text-tinta-suave">Para el día siguiente: </span>

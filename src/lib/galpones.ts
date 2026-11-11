@@ -13,13 +13,19 @@ export const KG_POR_BULTO = 40;
 /** Consumo de referencia de una gallina en postura (audio del dueño) */
 export const GRAMOS_GALLINA_POSTURA = 115;
 
+/** postura: gallinas que ponen huevos · levante: pollitas desde chiquitas, sin huevos */
+export type TipoGalpon = 'postura' | 'levante';
+
 export interface Galpon {
   id: number;
   nombre: string;
+  tipo: TipoGalpon;
   aves_iniciales: number;
   fecha_llegada: string; // YYYY-MM-DD
   edad_semanas_llegada: number;
   gramos_ave_dia: number;
+  /** Valor del bulto de 40 kg de purina (0 = sin precio) */
+  precio_bulto: number;
   activo: boolean;
 }
 
@@ -30,6 +36,8 @@ export interface RegistroGalpon {
   huevos: number;
   muertas: number;
   alimento_kg: number;
+  /** Precio del bulto el día del registro (null en registros viejos: se usa el del galpón) */
+  precio_bulto: number | null;
   notas: string | null;
   registrado_por: string | null;
 }
@@ -80,6 +88,34 @@ export const alimentoSugeridoKg = (vivas: number, gramosAveDia: number) =>
   Math.round(((vivas * gramosAveDia) / 1000) * 10) / 10;
 
 export const kgABultos = (kg: number) => kg / KG_POR_BULTO;
+
+/** Valor de un kilo y de un gramo de purina a partir del precio del bulto */
+export const precioKilo = (precioBulto: number) => precioBulto / KG_POR_BULTO;
+export const precioGramo = (precioBulto: number) => precioBulto / (KG_POR_BULTO * 1000);
+
+/** Plata gastada en alimento: kilos × precio del kilo */
+export const costoAlimento = (kg: number, precioBulto: number) => Math.round(kg * precioKilo(precioBulto));
+
+/** Precio con el que se calcula un registro: el guardado ese día o, si no tiene, el actual del galpón */
+export const precioDelRegistro = (r: RegistroGalpon, g: Galpon | undefined) => r.precio_bulto ?? g?.precio_bulto ?? 0;
+
+/** Gasto en alimento de todo el lote (todos sus días anotados) */
+export const costoLote = (g: Galpon, registros: RegistroGalpon[]) =>
+  registros.filter((r) => r.galpon_id === g.id).reduce((acc, r) => acc + costoAlimento(r.alimento_kg, precioDelRegistro(r, g)), 0);
+
+/** Kilos de alimento de todo el lote */
+export const kgLote = (g: Galpon, registros: RegistroGalpon[]) =>
+  registros.filter((r) => r.galpon_id === g.id).reduce((acc, r) => acc + r.alimento_kg, 0);
+
+/** Gramos que comió en promedio cada ave ese día */
+export const gramosPorAve = (kg: number, aves: number) => (aves > 0 ? Math.round((kg * 1000) / aves) : 0);
+
+export const formatoPesos = (n: number) =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
+
+/** Pesos con decimales para valores pequeños (el gramo de purina vale centavos) */
+export const formatoPesosFino = (n: number) =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 2 }).format(n || 0);
 
 /** 95 huevos → { cartones: 3, sueltos: 5 } */
 export const aCartones = (huevos: number) => ({
