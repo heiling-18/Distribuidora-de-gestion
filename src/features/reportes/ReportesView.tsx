@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, Lock, Receipt } from 'lucide-react';
 import { Badge, Button, ConfirmDialog, EmptyState, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoFecha, formatoMoneda } from '@/lib/formato';
-import type { CierreMensual, Gasto, Venta } from '@/types';
+import type { CierreMensual, Gasto, Producto, Venta } from '@/types';
 import { ComprobanteMesModal } from './ComprobanteMesModal';
 import { MESES, MESES_LARGOS, claveMes, mesDesplazado, nombreMes } from './meses';
 
@@ -10,6 +10,8 @@ interface ReportesViewProps {
   ventas: Venta[];
   gastos: Gasto[];
   cierres: CierreMensual[];
+  /** Para saber en qué unidad se vende cada producto (bulto, kilo o unidad) */
+  productos: Producto[];
   tipoPrecio: (v: Venta) => 'detal' | 'mayorista';
   onExportar: () => void;
   onVerTicket: (v: Venta) => void;
@@ -28,7 +30,27 @@ function calcularMes(ventas: Venta[], gastos: Gasto[], clave: string) {
   return { total, ganancia, gastos: totalGastos, utilidad: ganancia - totalGastos, cantidad: validas.length, anuladas: delMes.length - validas.length };
 }
 
-export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, onVerTicket, onCerrarMes, telefonoDueno }: ReportesViewProps) {
+/** Cantidades vendidas (sin anuladas) separadas por unidad, para no sumar kilos con bultos */
+function cantidadesVendidas(ventas: Venta[], unidadDe: (v: Venta) => string) {
+  const r = { bulto: 0, kilo: 0, unidad: 0 };
+  for (const v of ventas) {
+    if (v.estado === 'anulada') continue;
+    const u = unidadDe(v);
+    const clave = u === 'kilo' ? 'kilo' : u === 'unidad' ? 'unidad' : 'bulto';
+    r[clave] += Number(v.cantidad) || 0;
+  }
+  return r;
+}
+
+const entero = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 1 });
+const textoBultos = (n: number) => `${entero.format(n)} ${n === 1 ? 'bulto' : 'bultos'}`;
+/** "+ 15 kg · 3 unidades" (lo que no se vende por bulto); vacío si no hay */
+function textoOtrasUnidades(c: { kilo: number; unidad: number }) {
+  const partes = [c.kilo > 0 ? `${entero.format(c.kilo)} kg` : '', c.unidad > 0 ? `${entero.format(c.unidad)} ${c.unidad === 1 ? 'unidad' : 'unidades'}` : ''].filter(Boolean);
+  return partes.length ? `+ ${partes.join(' · ')}` : '';
+}
+
+export function ReportesView({ ventas, gastos, cierres, productos, tipoPrecio, onExportar, onVerTicket, onCerrarMes, telefonoDueno }: ReportesViewProps) {
   const [mesACerrar, setMesACerrar] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState(false);
   const [acta, setActa] = useState<CierreMensual | null>(null);
@@ -37,6 +59,18 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
   const mesActual = claveMes(new Date());
   const [mesVisto, setMesVisto] = useState(mesActual);
   const resumen = useMemo(() => calcularMes(ventas, gastos, mesVisto), [ventas, gastos, mesVisto]);
+
+  // Unidad de cada venta: por el producto (id o nombre); si ya no existe, se cuenta como bulto
+  const unidadDe = useMemo(() => {
+    const porId = new Map(productos.map((p) => [p.id, p.unidad_medida]));
+    const porNombre = new Map(productos.map((p) => [p.nombre, p.unidad_medida]));
+    return (v: Venta) => (v.producto_id != null ? porId.get(v.producto_id) : undefined) ?? porNombre.get(v.nombre_producto) ?? 'bulto';
+  }, [productos]);
+  const vendidoMes = useMemo(
+    () => cantidadesVendidas(ventas.filter((v) => claveMes(v.fecha) === mesVisto), unidadDe),
+    [ventas, mesVisto, unidadDe]
+  );
+  const vendidoTotal = useMemo(() => cantidadesVendidas(ventas, unidadDe), [ventas, unidadDe]);
   const cierreVisto = cierres.find((c) => c.mes === mesVisto);
 
   // Primer mes con movimiento: hasta ahí deja retroceder la flecha
@@ -55,6 +89,13 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
     const totalGastos = gastos.reduce((acc, g) => acc + (Number(g.monto) || 0), 0);
     return { total, ganancia, gastos: totalGastos, utilidad: ganancia - totalGastos, cantidad: validas.length, anuladas: ventas.length - validas.length };
   }, [ventas, gastos]);
+
+  // Meses desde el primero con movimiento hasta el actual (incluidos), para el promedio de bultos
+  const mesesConDatos = useMemo(() => {
+    const [a1, m1] = primerMes.split('-').map(Number);
+    const [a2, m2] = mesActual.split('-').map(Number);
+    return Math.max(1, (a2 - a1) * 12 + (m2 - m1) + 1);
+  }, [primerMes, mesActual]);
 
   const margen = (ganancia: number, total: number) =>
     total > 0 ? `${((ganancia / total) * 100).toFixed(1).replace('.', ',')} %` : '—';
@@ -164,7 +205,7 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
             tono="oscuro"
             etiqueta={`Ventas de ${nombreMes(mesVisto)}`}
             valor={formatoMoneda(resumen.total)}
-            detalle={`${resumen.cantidad} ventas · ${resumen.anuladas} anuladas · ${
+            detalle={`${resumen.cantidad} ventas · ${textoBultos(vendidoMes.bulto)}${textoOtrasUnidades(vendidoMes) ? ` ${textoOtrasUnidades(vendidoMes)}` : ''} · ${resumen.anuladas} anuladas · ${
               mesVisto === mesActual ? 'arranca en 0 cada mes' : cierreVisto ? 'mes cerrado' : 'mes por cerrar'
             }`}
           />
@@ -183,7 +224,7 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
           <h2 id="titulo-historico" className="text-xl font-bold text-tinta">Ventas totales</h2>
           <span className="text-[15px] text-tinta-suave">Todos los meses</span>
         </div>
-        <div className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             etiqueta="Total vendido"
             valor={formatoMoneda(historico.total)}
@@ -195,6 +236,16 @@ export function ReportesView({ ventas, gastos, cierres, tipoPrecio, onExportar, 
             detalle={`Gastos ${formatoMoneda(historico.gastos)} · utilidad ${formatoMoneda(historico.utilidad)}`}
           />
           <StatCard etiqueta="Margen promedio" valor={margen(historico.ganancia, historico.total)} detalle="Sobre todo lo vendido" />
+          <StatCard
+            etiqueta="Bultos vendidos"
+            valor={textoBultos(vendidoTotal.bulto)}
+            detalle={[
+              `≈ ${entero.format(Math.round((vendidoTotal.bulto / mesesConDatos) * 10) / 10)} por mes`,
+              textoOtrasUnidades(vendidoTotal),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          />
         </div>
       </section>
 
