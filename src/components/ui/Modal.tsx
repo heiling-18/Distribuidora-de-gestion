@@ -34,14 +34,18 @@ export function Modal({ titulo, descripcion, onCerrar, children, ancho = 'sm', c
   }, [onCerrar]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto p-0 sm:items-center sm:p-4">
+    // El contenedor que se desplaza va por fuera del flex: si el panel queda más alto que la pantalla
+    // (formularios largos en el celular), con `items-end` directo en él la parte de arriba quedaba cortada
+    // y no se podía subir hasta ella.
+    <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain">
       <button type="button" aria-label="Cerrar" tabIndex={-1} onClick={onCerrar} className="fixed inset-0 cursor-default bg-noche/60" />
+      <div className="pointer-events-none flex min-h-full items-end justify-center pt-10 sm:items-center sm:p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={tituloId}
         className={cn(
-          'animate-subir relative flex w-full flex-col gap-5 rounded-t-[24px] bg-superficie p-6 shadow-[0_30px_80px_-24px_rgba(23,19,15,0.55)] sm:my-8 sm:rounded-tarjeta sm:p-7',
+          'animate-subir pointer-events-auto relative flex w-full flex-col gap-5 rounded-t-[24px] bg-superficie p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-[0_30px_80px_-24px_rgba(23,19,15,0.55)] sm:my-8 sm:rounded-tarjeta sm:p-7',
           anchos[ancho],
           className
         )}
@@ -61,6 +65,7 @@ export function Modal({ titulo, descripcion, onCerrar, children, ancho = 'sm', c
           </button>
         </div>
         {children}
+      </div>
       </div>
     </div>
   );
