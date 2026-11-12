@@ -1540,6 +1540,7 @@ ${detalle}
             ventas={ventas}
             gastos={gastos}
             cierres={cierresMensuales}
+            productos={productos}
             tipoPrecio={determinarTipoPrecioVenta}
             onExportar={() => exportarVentasExcel(false)}
             onVerTicket={verTicketDeVenta}
