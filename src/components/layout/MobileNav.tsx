@@ -20,11 +20,12 @@ interface MobileNavProps<T extends string> {
   /** Indicador a la derecha de la barra superior (p. ej. estado de la caja) */
   estado?: React.ReactNode;
   seccion?: string;
-  cambioSeccion?: CambioSeccion;
+  /** Botones para pasar a las otras secciones a las que tiene acceso */
+  cambiosSeccion?: CambioSeccion[];
 }
 
 /** Barra superior + navegación inferior para celular y tablet (< lg) */
-export function MobileNav<T extends string>({ modulos, barraMovil, moduloActivo, onCambiar, usuario, onSalir, avisos, estado, seccion, cambioSeccion }: MobileNavProps<T>) {
+export function MobileNav<T extends string>({ modulos, barraMovil, moduloActivo, onCambiar, usuario, onSalir, avisos, estado, seccion, cambiosSeccion = [] }: MobileNavProps<T>) {
   const [masAbierto, setMasAbierto] = useState(false);
   const fijos = modulos.filter((m) => barraMovil.includes(m.id));
   const resto = modulos.filter((m) => !barraMovil.includes(m.id));
@@ -120,8 +121,9 @@ export function MobileNav<T extends string>({ modulos, barraMovil, moduloActivo,
                 {m.etiqueta}
               </button>
             ))}
-            {cambioSeccion && (
+            {cambiosSeccion.map((cambioSeccion) => (
               <button
+                key={cambioSeccion.etiqueta}
                 type="button"
                 onClick={() => {
                   setMasAbierto(false);
@@ -132,7 +134,7 @@ export function MobileNav<T extends string>({ modulos, barraMovil, moduloActivo,
                 <cambioSeccion.Icono className="h-5 w-5" aria-hidden="true" />
                 {cambioSeccion.etiqueta}
               </button>
-            )}
+            ))}
             <button
               type="button"
               onClick={() => {

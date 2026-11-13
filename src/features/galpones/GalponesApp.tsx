@@ -30,7 +30,7 @@ interface GalponesAppProps {
   usuario: Usuario;
   onSalir: () => void;
   notificar: (tipo: Tono, mensaje: string) => void;
-  cambioSeccion?: CambioSeccion;
+  cambiosSeccion?: CambioSeccion[];
 }
 
 /** Normaliza numéricos que Supabase devuelve como texto (numeric) */
@@ -61,7 +61,7 @@ const AVISO_MIGRACION_LEVANTE =
  * Solo lee y escribe las tablas gal_galpones y gal_registros;
  * nunca toca los datos de la Distribuidora.
  */
-export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: GalponesAppProps) {
+export function GalponesApp({ usuario, onSalir, notificar, cambiosSeccion }: GalponesAppProps) {
   const esAdmin = usuario.rol === 'admin';
   const [modulo, setModulo] = useState<ModuloGalpones>('gal-inicio');
   const [galpones, setGalpones] = useState<Galpon[]>([]);
@@ -243,7 +243,7 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
         usuario={usuario}
         onSalir={onSalir}
         seccion="Galpones"
-        cambioSeccion={cambioSeccion}
+        cambiosSeccion={cambiosSeccion}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -255,7 +255,7 @@ export function GalponesApp({ usuario, onSalir, notificar, cambioSeccion }: Galp
           usuario={usuario}
           onSalir={onSalir}
           seccion="Galpones"
-          cambioSeccion={cambioSeccion}
+          cambiosSeccion={cambiosSeccion}
         />
 
         <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 pb-28 pt-6 sm:px-8 lg:pb-10 lg:pt-8">

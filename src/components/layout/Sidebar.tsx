@@ -18,9 +18,10 @@ interface SidebarProps<T extends string> {
   onSalir: () => void;
   /** Número pequeño junto a un módulo (p. ej. productos por reponer) */
   avisos?: Partial<Record<T, number>>;
-  /** Nombre de la sección actual: "Distribuidora" o "Galpones" */
+  /** Nombre de la sección actual: "Distribuidora", "Galpones" o "Huevos" */
   seccion?: string;
-  cambioSeccion?: CambioSeccion;
+  /** Botones para pasar a las otras secciones a las que tiene acceso */
+  cambiosSeccion?: CambioSeccion[];
 }
 
 function iniciales(nombre: string) {
@@ -28,7 +29,7 @@ function iniciales(nombre: string) {
 }
 
 /** Menú lateral de escritorio (≥ lg) */
-export function Sidebar<T extends string>({ modulos, moduloActivo, onCambiar, usuario, onSalir, avisos, seccion, cambioSeccion }: SidebarProps<T>) {
+export function Sidebar<T extends string>({ modulos, moduloActivo, onCambiar, usuario, onSalir, avisos, seccion, cambiosSeccion = [] }: SidebarProps<T>) {
   const generales = modulos.filter((m) => !m.soloAdmin);
   const admin = modulos.filter((m) => m.soloAdmin);
 
@@ -76,8 +77,9 @@ export function Sidebar<T extends string>({ modulos, moduloActivo, onCambiar, us
       </nav>
 
       <div className="mt-auto flex flex-col gap-3">
-        {cambioSeccion && (
+        {cambiosSeccion.map((cambioSeccion) => (
           <button
+            key={cambioSeccion.etiqueta}
             type="button"
             onClick={cambioSeccion.onClick}
             className="flex h-11 w-full cursor-pointer items-center gap-3 rounded-control border border-carbon-claro px-3 text-[15px] font-semibold text-crema transition-colors hover:bg-carbon-claro hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-maiz"
@@ -85,7 +87,7 @@ export function Sidebar<T extends string>({ modulos, moduloActivo, onCambiar, us
             <cambioSeccion.Icono className="h-5 w-5 shrink-0" aria-hidden="true" />
             <span className="truncate">{cambioSeccion.etiqueta}</span>
           </button>
-        )}
+        ))}
 
         <div className="flex items-center gap-2.5 rounded-campo bg-carbon p-3">
           <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-control bg-maiz text-sm font-bold text-noche">

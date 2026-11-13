@@ -6,7 +6,7 @@ import { ClipboardPen, House, Warehouse, type LucideIcon } from 'lucide-react';
 // ==========================================
 
 /** Sección de la plataforma: cada una con sus propios datos */
-export type Seccion = 'distribuidora' | 'galpones';
+export type Seccion = 'distribuidora' | 'galpones' | 'huevos';
 
 export const HUEVOS_POR_CARTON = 30;
 export const KG_POR_BULTO = 40;
