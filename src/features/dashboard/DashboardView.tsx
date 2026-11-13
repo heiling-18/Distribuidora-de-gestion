@@ -141,7 +141,7 @@ export function DashboardView(p: DashboardViewProps) {
           <Button variante="secundario" onClick={p.onActualizar} disabled={p.actualizando} aria-label="Actualizar datos" title="Actualizar datos" className="px-3.5">
             <RefreshCw className={cn('h-5 w-5', p.actualizando && 'animate-spin')} aria-hidden="true" />
           </Button>
-          <Button variante="secundario" onClick={p.onIrCaja}>{p.cajaAbierta ? 'Cerrar caja' : 'Abrir caja'}</Button>
+          <Button variante="secundario" onClick={p.onIrCaja}>{p.cajaAbierta ? 'Cerrar caja' : 'Ver caja'}</Button>
           <Button onClick={p.onNuevaVenta}>
             <Plus className="h-5 w-5" aria-hidden="true" />
             Nueva venta

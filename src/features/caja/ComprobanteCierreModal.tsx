@@ -17,6 +17,11 @@ export function ComprobanteCierreModal({ cierre, onCerrar }: { cierre: CierreCaj
     ['Efectivo contado', formatoMoneda(cierre.dinero_real), true],
     ['Diferencia', formatoMoneda(cierre.diferencia), true],
   ];
+  // Caja automática: lo que quedó para mañana y lo que se sacó
+  if (cierre.base_siguiente != null) {
+    filas.push(['Se deja para mañana', formatoMoneda(Number(cierre.base_siguiente)), true]);
+    if (Number(cierre.retirado) > 0) filas.push(['Retirado de la gaveta', formatoMoneda(Number(cierre.retirado))]);
+  }
 
   return (
     <Modal titulo="Comprobante de cierre" onCerrar={onCerrar}>
