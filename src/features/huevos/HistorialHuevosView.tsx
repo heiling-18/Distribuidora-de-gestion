@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import { Badge, Button, EmptyState, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
 import { formatoDia, textoCartones } from '@/lib/galpones';
@@ -12,6 +12,7 @@ interface HistorialHuevosViewProps {
   esAdmin: boolean;
   tipos: TipoHuevo[];
   movimientos: MovimientoHuevo[];
+  onEditar: (m: MovimientoHuevo) => void;
   onEliminar: (m: MovimientoHuevo) => void;
 }
 
@@ -112,7 +113,11 @@ export function HistorialHuevosView(p: HistorialHuevosViewProps) {
                   </Td>
                   <Td className="text-tinta-suave">{[m.tercero, m.registrado_por && `anotó ${m.registrado_por}`].filter(Boolean).join(' · ') || '—'}</Td>
                   {p.esAdmin && (
-                    <Td alinear="der">
+                    <Td alinear="der" className="whitespace-nowrap">
+                      <Button variante="fantasma" tamano="sm" onClick={() => p.onEditar(m)} aria-label={`Corregir ${NOMBRE_CLASE[m.clase].toLowerCase()} del ${formatoDia(m.fecha)}`}>
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
+                        Corregir
+                      </Button>
                       <Button variante="peligro" tamano="sm" onClick={() => p.onEliminar(m)} aria-label={`Eliminar ${NOMBRE_CLASE[m.clase].toLowerCase()} del ${formatoDia(m.fecha)}`}>
                         <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </Button>

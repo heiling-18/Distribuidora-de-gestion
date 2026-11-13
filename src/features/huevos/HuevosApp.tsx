@@ -15,6 +15,7 @@ import {
   SIN_EXISTENCIA,
   calcularExistencias,
   valorHuevos,
+  type CambiosTipo,
   type ModuloHuevos,
   type MovimientoHuevo,
   type NuevoMovimiento,
@@ -25,6 +26,7 @@ import { VenderHuevosView } from './VenderHuevosView';
 import { LlegadasView } from './LlegadasView';
 import { HistorialHuevosView } from './HistorialHuevosView';
 import { TiposHuevoView } from './TiposHuevoView';
+import { EditarMovimientoModal } from './EditarMovimientoModal';
 
 type Tono = 'exito' | 'error' | 'advertencia' | 'info';
 
@@ -59,6 +61,7 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
   const [procesando, setProcesando] = useState(false);
   const [tipoParaVender, setTipoParaVender] = useState<number | null>(null);
   const [movAEliminar, setMovAEliminar] = useState<MovimientoHuevo | null>(null);
+  const [movAEditar, setMovAEditar] = useState<MovimientoHuevo | null>(null);
   const [tipoAEliminar, setTipoAEliminar] = useState<TipoHuevo | null>(null);
 
   const cargar = useCallback(async () => {
@@ -157,6 +160,31 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
     setMovAEliminar(null);
   };
 
+  // Corregir una llegada, venta o rotos (solo admin; la base de datos vuelve a revisar que no quede negativo)
+  const editarMovimiento = async (id: number, cambios: NuevoMovimiento) => {
+    if (procesando) return false;
+    setProcesando(true);
+    try {
+      const { data, error } = await supabase.from('hue_movimientos').update(cambios).eq('id', id).select().single();
+      if (error || !data) {
+        notificar(
+          'error',
+          /No hay suficientes huevos/.test(error?.message || '')
+            ? 'Con ese cambio no alcanzan los huevos de ese tamaño. Revisa la cantidad.'
+            : 'No se pudo guardar la corrección: ' + (error?.message || 'sin respuesta del servidor')
+        );
+        return false;
+      }
+      const corregido = aMovimiento(data);
+      setMovimientos((prev) => prev.map((m) => (m.id === corregido.id ? corregido : m)).sort(ordenarMovs));
+      notificar('exito', `${NOMBRE_CLASE[corregido.clase]} corregida.`);
+      setMovAEditar(null);
+      return true;
+    } finally {
+      setProcesando(false);
+    }
+  };
+
   const crearTipo = async (nombre: string, precioVenta: number) => {
     if (procesando) return false;
     setProcesando(true);
@@ -175,15 +203,25 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
     }
   };
 
-  const actualizarTipo = async (id: number, cambios: Partial<Pick<TipoHuevo, 'precio_venta' | 'activo'>>) => {
+  const actualizarTipo = async (id: number, cambios: CambiosTipo) => {
     const { data, error } = await supabase.from('hue_tipos').update(cambios).eq('id', id).select().single();
     if (error || !data) {
-      notificar('error', 'No se pudo guardar el cambio: ' + (error?.message || 'sin respuesta del servidor'));
+      notificar(
+        'error',
+        error?.code === '23505' ? `Ya existe un tamaño llamado ${cambios.nombre}.` : 'No se pudo guardar el cambio: ' + (error?.message || 'sin respuesta del servidor')
+      );
       return false;
     }
     const t = aTipo(data);
     setTipos((prev) => prev.map((x) => (x.id === t.id ? t : x)));
-    notificar('exito', cambios.precio_venta !== undefined ? `Precio de ${t.nombre}: ${formatoMoneda(t.precio_venta)} el cartón.` : `${t.nombre} ${t.activo ? 'visible' : 'oculto'}.`);
+    notificar(
+      'exito',
+      cambios.nombre !== undefined
+        ? `Nombre cambiado a ${t.nombre}.`
+        : cambios.precio_venta !== undefined
+          ? `Precio de ${t.nombre}: ${formatoMoneda(t.precio_venta)} el cartón.`
+          : `${t.nombre} ${t.activo ? 'visible' : 'oculto'}.`
+    );
     return true;
   };
 
@@ -268,7 +306,13 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
                 <LlegadasView esAdmin={esAdmin} tipos={tipos} movimientos={movimientos} procesando={procesando} onGuardar={guardarMovimientos} />
               )}
               {moduloVisible === 'hue-historial' && (
-                <HistorialHuevosView esAdmin={esAdmin} tipos={tipos} movimientos={movimientos} onEliminar={pedirEliminarMovimiento} />
+                <HistorialHuevosView
+                  esAdmin={esAdmin}
+                  tipos={tipos}
+                  movimientos={movimientos}
+                  onEditar={setMovAEditar}
+                  onEliminar={pedirEliminarMovimiento}
+                />
               )}
               {moduloVisible === 'hue-tipos' && esAdmin && (
                 <TiposHuevoView
@@ -285,6 +329,17 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
           )}
         </main>
       </div>
+
+      {movAEditar && esAdmin && (
+        <EditarMovimientoModal
+          movimiento={movAEditar}
+          tipos={tipos}
+          movimientos={movimientos}
+          procesando={procesando}
+          onGuardar={editarMovimiento}
+          onCerrar={() => setMovAEditar(null)}
+        />
+      )}
 
       {movAEliminar && (
         <ConfirmDialog

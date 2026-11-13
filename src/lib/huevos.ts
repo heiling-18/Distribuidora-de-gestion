@@ -34,6 +34,9 @@ export interface MovimientoHuevo {
   created_at: string;
 }
 
+/** Lo que se puede cambiar de un tamaño ya creado */
+export type CambiosTipo = Partial<Pick<TipoHuevo, 'nombre' | 'precio_venta' | 'activo'>>;
+
 /** Lo que se envía al guardar una llegada, venta o pérdida */
 export type NuevoMovimiento = Omit<MovimientoHuevo, 'id' | 'created_at' | 'registrado_por'>;
 
@@ -67,7 +70,7 @@ export interface ExistenciaTipo {
 export const SIN_EXISTENCIA: ExistenciaTipo = { huevos: 0, costoCarton: 0, valorCosto: 0 };
 
 /** Orden en que pasaron las cosas: por día y, dentro del día, por hora de registro */
-const enOrden = (a: MovimientoHuevo, b: MovimientoHuevo) =>
+export const enOrden = (a: MovimientoHuevo, b: MovimientoHuevo) =>
   a.fecha.localeCompare(b.fecha) || a.created_at.localeCompare(b.created_at) || a.id - b.id;
 
 /**
@@ -98,6 +101,22 @@ export function calcularExistencias(movimientos: MovimientoHuevo[]): Map<number,
     });
   }
   return resultado;
+}
+
+/**
+ * Costo promedio del cartón de un tamaño justo antes de un movimiento (sin contarlo a él).
+ * Al corregir una venta o unos rotos, su costo se vuelve a calcular con lo que había en ese momento.
+ */
+export function costoAntesDe(movimientos: MovimientoHuevo[], mov: MovimientoHuevo, tipoId: number) {
+  const antes = movimientos.filter((m) => m.id !== mov.id && enOrden(m, mov) < 0);
+  return (calcularExistencias(antes).get(tipoId) ?? SIN_EXISTENCIA).costoCarton;
+}
+
+/** Huevos que quedan de cada tamaño si los movimientos fueran estos (entradas − ventas − rotos), sin redondear a 0 */
+export function saldoPorTipo(movimientos: MovimientoHuevo[]) {
+  const saldo = new Map<number, number>();
+  for (const m of movimientos) saldo.set(m.tipo_id, (saldo.get(m.tipo_id) ?? 0) + (m.clase === 'entrada' ? m.huevos : -m.huevos));
+  return saldo;
 }
 
 /** Ganancia de una venta: lo cobrado menos lo que costaron esos huevos */
