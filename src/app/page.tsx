@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Egg, Store } from 'lucide-react';
+import { Egg, Store, Warehouse } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { normalizarCategoria } from '@/lib/categorias';
 import { LoginScreen } from '@/features/auth/LoginScreen';
@@ -12,6 +12,8 @@ import { Toasts } from '@/components/layout/Toasts';
 import { MODULOS_BARRA_MOVIL, modulosVisibles, type Modulo } from '@/lib/modulos';
 import type { Seccion } from '@/lib/galpones';
 import { GalponesApp } from '@/features/galpones/GalponesApp';
+import { HuevosApp } from '@/features/huevos/HuevosApp';
+import type { CambioSeccion } from '@/lib/modulos';
 import type { CierreCaja, CierreMensual, Cliente, Gasto, ItemCarrito, NotificacionVisual, Producto, SesionCaja, Usuario, Venta } from '@/types';
 import { formatoMoneda } from '@/lib/formato';
 import { conLimiteDeTiempo, LIMITE_AVISO_DATOS, LIMITE_LOGIN, LIMITE_PERFIL, TiempoAgotadoError } from '@/lib/tiempo';
@@ -64,10 +66,21 @@ export default function DYMSApp() {
   // 1. Sesión y Navegación
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [moduloActivo, setModuloActivo] = useState<Modulo>('dashboard');
-  // Sección de la plataforma (datos separados). El admin elige; los demás tienen una sola.
+  // Sección de la plataforma (datos separados). El admin pasa por las tres; el vendedor entre
+  // Distribuidora y Huevos; el galponero solo ve Galpones.
   const [seccionElegida, setSeccionElegida] = useState<Seccion>('distribuidora');
-  const seccionActiva: Seccion =
-    usuario?.rol === 'galponero' ? 'galpones' : usuario?.rol === 'admin' ? seccionElegida : 'distribuidora';
+  const seccionesDelRol: Seccion[] =
+    usuario?.rol === 'admin' ? ['distribuidora', 'galpones', 'huevos'] : usuario?.rol === 'galponero' ? ['galpones'] : ['distribuidora', 'huevos'];
+  const seccionActiva: Seccion = seccionesDelRol.includes(seccionElegida) ? seccionElegida : seccionesDelRol[0];
+  /** Botones del menú para pasar a las otras secciones del rol */
+  const cambiosDesde = (actual: Seccion): CambioSeccion[] =>
+    seccionesDelRol
+      .filter((s) => s !== actual)
+      .map((s) => ({
+        etiqueta: s === 'distribuidora' ? 'Ir a Distribuidora' : s === 'galpones' ? 'Ir a Galpones' : 'Ir a Huevos',
+        Icono: s === 'distribuidora' ? Store : s === 'galpones' ? Warehouse : Egg,
+        onClick: () => setSeccionElegida(s),
+      }));
 
   // Login
   const [loginEmail, setLoginEmail] = useState('');
@@ -1320,7 +1333,27 @@ ${detalle}
           usuario={usuario}
           onSalir={handleLogout}
           notificar={mostrarNotificacion}
-          cambioSeccion={usuario.rol === 'admin' ? { etiqueta: 'Ir a Distribuidora', Icono: Store, onClick: () => setSeccionElegida('distribuidora') } : undefined}
+          cambiosSeccion={cambiosDesde('galpones')}
+        />
+      </>
+    );
+  }
+
+  // ==========================================
+  // SECCIÓN HUEVOS (src/features/huevos) — datos aparte (tablas hue_*)
+  // ==========================================
+  if (seccionActiva === 'huevos') {
+    return (
+      <>
+        <Toasts
+          notificaciones={notificaciones}
+          onCerrar={(id) => setNotificaciones(prev => prev.filter(item => item.id !== id))}
+        />
+        <HuevosApp
+          usuario={usuario}
+          onSalir={handleLogout}
+          notificar={mostrarNotificacion}
+          cambiosSeccion={cambiosDesde('huevos')}
         />
       </>
     );
@@ -1332,9 +1365,7 @@ ${detalle}
   const stockBajo = productos.filter(p => p.stock <= p.stock_minimo).length;
   const cajaAbierta = cajaActual?.estado === 'abierta';
   const modulosDistribuidora = modulosVisibles(usuario.rol === 'admin');
-  const irAGalpones = usuario.rol === 'admin'
-    ? { etiqueta: 'Ir a Galpones', Icono: Egg, onClick: () => setSeccionElegida('galpones') }
-    : undefined;
+  const otrasSecciones = cambiosDesde('distribuidora');
 
   return (
     <div className="min-h-dvh bg-papel text-tinta lg:flex">
@@ -1352,8 +1383,8 @@ ${detalle}
         usuario={usuario}
         onSalir={handleLogout}
         avisos={{ inventario: stockBajo }}
-        seccion={irAGalpones ? 'Distribuidora' : undefined}
-        cambioSeccion={irAGalpones}
+        seccion={otrasSecciones.length > 0 ? 'Distribuidora' : undefined}
+        cambiosSeccion={otrasSecciones}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -1366,7 +1397,7 @@ ${detalle}
           usuario={usuario}
           onSalir={handleLogout}
           avisos={{ inventario: stockBajo }}
-          cambioSeccion={irAGalpones}
+          cambiosSeccion={otrasSecciones}
           estado={
             <span className={cajaAbierta ? 'rounded-lg bg-[#23402F] px-2.5 py-1 text-[13px] font-bold text-[#BFE6CC]' : 'rounded-lg bg-rojo px-2.5 py-1 text-[13px] font-bold text-white'}>
               {cajaAbierta ? 'Caja abierta' : 'Caja cerrada'}
