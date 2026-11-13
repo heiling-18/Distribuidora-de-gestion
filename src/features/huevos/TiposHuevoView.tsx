@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { Alert, Badge, Button, EmptyState, Field, Fila, PageHeader, Panel, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
 import { textoCartones } from '@/lib/galpones';
-import { SIN_EXISTENCIA, type ExistenciaTipo, type TipoHuevo } from '@/lib/huevos';
+import { SIN_EXISTENCIA, type CambiosTipo, type ExistenciaTipo, type TipoHuevo } from '@/lib/huevos';
 
 interface TiposHuevoViewProps {
   tipos: TipoHuevo[];
@@ -14,7 +14,7 @@ interface TiposHuevoViewProps {
   conMovimientos: Set<number>;
   procesando: boolean;
   onCrear: (nombre: string, precioVenta: number) => Promise<boolean>;
-  onActualizar: (id: number, cambios: Partial<Pick<TipoHuevo, 'precio_venta' | 'activo'>>) => Promise<boolean>;
+  onActualizar: (id: number, cambios: CambiosTipo) => Promise<boolean>;
   onEliminar: (t: TipoHuevo) => void;
 }
 
@@ -23,7 +23,18 @@ export function TiposHuevoView(p: TiposHuevoViewProps) {
   const [nombre, setNombre] = useState('');
   const [precioNuevo, setPrecioNuevo] = useState('');
   const [precios, setPrecios] = useState<Record<number, string>>({});
+  // Nombre que se está cambiando (solo una fila a la vez)
+  const [renombrando, setRenombrando] = useState<{ id: number; nombre: string } | null>(null);
   const [error, setError] = useState('');
+
+  const guardarNombre = async () => {
+    if (!renombrando) return;
+    setError('');
+    const n = renombrando.nombre.trim().toUpperCase();
+    if (!n) return setError('El nombre no puede quedar vacío.');
+    if (p.tipos.some((t) => t.id !== renombrando.id && t.nombre.toUpperCase() === n)) return setError(`Ya existe el tamaño ${n}.`);
+    if (await p.onActualizar(renombrando.id, { nombre: n })) setRenombrando(null);
+  };
 
   const crear = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,7 +111,41 @@ export function TiposHuevoView(p: TiposHuevoViewProps) {
                 return (
                   <Fila key={t.id} className={cn(!t.activo && 'text-tinta-tenue')}>
                     <Td className="font-bold">
-                      {t.nombre} {!t.activo && <Badge className="ml-1">Oculto</Badge>}
+                      {renombrando?.id === t.id ? (
+                        <form
+                          onSubmit={(ev) => {
+                            ev.preventDefault();
+                            guardarNombre();
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <input
+                            autoFocus
+                            aria-label={`Nuevo nombre para ${t.nombre}`}
+                            value={renombrando.nombre}
+                            maxLength={20}
+                            onChange={(ev) => setRenombrando({ id: t.id, nombre: ev.target.value })}
+                            onKeyDown={(ev) => ev.key === 'Escape' && setRenombrando(null)}
+                            className="h-10 w-24 rounded-control border-[1.5px] border-borde bg-superficie px-3 text-[15px] font-bold uppercase focus:border-rojo focus:outline-none focus:ring-4 focus:ring-rojo/15"
+                          />
+                          <Button type="submit" tamano="sm" cargando={p.procesando}>Guardar</Button>
+                          <Button type="button" variante="fantasma" tamano="sm" onClick={() => setRenombrando(null)}>Cancelar</Button>
+                        </form>
+                      ) : (
+                        <span className="flex items-center gap-1.5">
+                          {t.nombre}
+                          {!t.activo && <Badge className="ml-1">Oculto</Badge>}
+                          <button
+                            type="button"
+                            onClick={() => setRenombrando({ id: t.id, nombre: t.nombre })}
+                            aria-label={`Cambiar el nombre de ${t.nombre}`}
+                            title="Cambiar nombre"
+                            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-control text-tinta-suave hover:bg-neutro hover:text-tinta"
+                          >
+                            <Pencil className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        </span>
+                      )}
                     </Td>
                     <Td className="whitespace-nowrap tabular">{textoCartones(e.huevos)}</Td>
                     <Td alinear="der" className="whitespace-nowrap tabular">{e.huevos > 0 ? formatoMoneda(e.costoCarton) : '—'}</Td>
