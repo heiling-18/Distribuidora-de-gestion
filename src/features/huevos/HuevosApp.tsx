@@ -113,7 +113,7 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
           permiso(error?.message)
             ? 'Solo puedes anotar movimientos de hoy. Para otros días, pídeselo al administrador.'
             : /No hay suficientes huevos/.test(error?.message || '')
-              ? 'No hay suficientes huevos de ese tamaño: alguien acaba de vender. Toca actualizar y vuelve a intentar.'
+              ? 'No hay suficientes huevos de ese tamaño: alguien acaba de vender. Toca actualizar y vuelve a intentar; no se guardó nada.'
               : 'No se pudo guardar: ' + (error?.message || 'sin respuesta del servidor')
         );
         return false;
@@ -126,7 +126,15 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
         const huevos = nuevos.reduce((acc, m) => acc + m.huevos, 0);
         notificar('exito', `Agregados al inventario: ${textoCartones(huevos)}.`);
       } else if (primero.clase === 'venta') {
-        notificar('exito', `Venta guardada: ${textoCartones(primero.huevos)} de ${nombre} por ${formatoMoneda(valorHuevos(primero.huevos, primero.precio_carton))}.`);
+        // Un cobro del carrito puede traer varias líneas (tamaños y cartón/unidad): se avisa el total
+        const total = nuevos.reduce((acc, m) => acc + valorHuevos(m.huevos, m.precio_carton), 0);
+        const huevos = nuevos.reduce((acc, m) => acc + m.huevos, 0);
+        notificar(
+          'exito',
+          nuevos.length === 1
+            ? `Venta guardada: ${textoCartones(huevos)} de ${nombre} por ${formatoMoneda(total)}.`
+            : `Venta guardada: ${textoCartones(huevos)} por ${formatoMoneda(total)}.`
+        );
       } else {
         notificar('exito', `Anotados ${textoCartones(primero.huevos)} de ${nombre} rotos.`);
       }
