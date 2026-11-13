@@ -5,11 +5,12 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { Alert, Badge, Button, EmptyState, Field, Fila, PageHeader, Panel, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
 import { textoCartones } from '@/lib/galpones';
-import { SIN_EXISTENCIA, type CambiosTipo, type ExistenciaTipo, type TipoHuevo } from '@/lib/huevos';
+import { enBodega, valorHuevos, type CambiosTipo, type TipoHuevo } from '@/lib/huevos';
 
 interface TiposHuevoViewProps {
   tipos: TipoHuevo[];
-  existencias: Map<number, ExistenciaTipo>;
+  /** Huevos en bodega por tamaño */
+  saldo: Map<number, number>;
   /** Tipos que ya tienen movimientos (no se pueden eliminar) */
   conMovimientos: Set<number>;
   procesando: boolean;
@@ -63,7 +64,7 @@ export function TiposHuevoView(p: TiposHuevoViewProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader titulo="Tipos y precios" descripcion="Los tamaños de huevo que manejas y a cuánto vendes el cartón hoy. El precio de compra se anota en cada llegada." />
+      <PageHeader titulo="Tipos y precios" descripcion="Los tamaños de huevo que manejas y a cuánto vendes el cartón. Ese precio es el que se usa al vender." />
 
       <Panel className="p-5 sm:p-6">
         <form onSubmit={crear} className="flex flex-col gap-4">
@@ -99,14 +100,14 @@ export function TiposHuevoView(p: TiposHuevoViewProps) {
               <tr>
                 <Th>Tamaño</Th>
                 <Th>En bodega</Th>
-                <Th alinear="der">Costo promedio</Th>
+                <Th alinear="der">Valor en bodega</Th>
                 <Th>Precio de venta (cartón)</Th>
                 <Th alinear="der"><span className="sr-only">Acciones</span></Th>
               </tr>
             </thead>
             <tbody>
               {p.tipos.map((t) => {
-                const e = p.existencias.get(t.id) ?? SIN_EXISTENCIA;
+                const hay = enBodega(p.saldo, t.id);
                 const editando = precios[t.id] !== undefined;
                 return (
                   <Fila key={t.id} className={cn(!t.activo && 'text-tinta-tenue')}>
@@ -147,8 +148,8 @@ export function TiposHuevoView(p: TiposHuevoViewProps) {
                         </span>
                       )}
                     </Td>
-                    <Td className="whitespace-nowrap tabular">{textoCartones(e.huevos)}</Td>
-                    <Td alinear="der" className="whitespace-nowrap tabular">{e.huevos > 0 ? formatoMoneda(e.costoCarton) : '—'}</Td>
+                    <Td className="whitespace-nowrap tabular">{textoCartones(hay)}</Td>
+                    <Td alinear="der" className="whitespace-nowrap tabular">{hay > 0 && t.precio_venta > 0 ? formatoMoneda(valorHuevos(hay, t.precio_venta)) : '—'}</Td>
                     <Td>
                       <div className="flex items-center gap-2">
                         <input

@@ -12,8 +12,8 @@ import { formatoDia, textoCartones } from '@/lib/galpones';
 import {
   MODULOS_HUEVOS,
   NOMBRE_CLASE,
-  SIN_EXISTENCIA,
-  calcularExistencias,
+  enBodega,
+  saldoPorTipo,
   valorHuevos,
   type CambiosTipo,
   type ModuloHuevos,
@@ -23,7 +23,7 @@ import {
 } from '@/lib/huevos';
 import { HuevosInicioView } from './HuevosInicioView';
 import { VenderHuevosView } from './VenderHuevosView';
-import { LlegadasView } from './LlegadasView';
+import { InventarioHuevosView } from './InventarioHuevosView';
 import { HistorialHuevosView } from './HistorialHuevosView';
 import { TiposHuevoView } from './TiposHuevoView';
 import { EditarMovimientoModal } from './EditarMovimientoModal';
@@ -92,12 +92,13 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
     cargar();
   }, [cargar]);
 
-  const existencias = useMemo(() => calcularExistencias(movimientos), [movimientos]);
+  // Huevos en bodega por tamaño: ingresos − ventas − rotos
+  const saldo = useMemo(() => saldoPorTipo(movimientos), [movimientos]);
   const conMovimientos = useMemo(() => new Set(movimientos.map((m) => m.tipo_id)), [movimientos]);
 
   const permiso = (msg?: string) => /row-level security|42501/i.test(msg || '');
 
-  /** Guarda una o varias llegadas, una venta o unos rotos */
+  /** Guarda uno o varios ingresos al inventario, una venta o unos rotos */
   const guardarMovimientos = async (movs: NuevoMovimiento[]) => {
     if (procesando || movs.length === 0) return false;
     setProcesando(true);
@@ -122,9 +123,8 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
       const primero = nuevos[0];
       const nombre = tipos.find((t) => t.id === primero.tipo_id)?.nombre ?? '';
       if (primero.clase === 'entrada') {
-        const total = nuevos.reduce((acc, m) => acc + valorHuevos(m.huevos, m.precio_carton), 0);
         const huevos = nuevos.reduce((acc, m) => acc + m.huevos, 0);
-        notificar('exito', `Llegada guardada: ${textoCartones(huevos)} por ${formatoMoneda(total)}.`);
+        notificar('exito', `Agregados al inventario: ${textoCartones(huevos)}.`);
       } else if (primero.clase === 'venta') {
         notificar('exito', `Venta guardada: ${textoCartones(primero.huevos)} de ${nombre} por ${formatoMoneda(valorHuevos(primero.huevos, primero.precio_carton))}.`);
       } else {
@@ -136,12 +136,12 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
     }
   };
 
-  // Borrar una llegada no puede dejar el inventario negativo (ya se vendió de ella)
+  // Borrar un ingreso no puede dejar el inventario negativo (ya se vendió de él)
   const pedirEliminarMovimiento = (m: MovimientoHuevo) => {
     if (m.clase === 'entrada') {
-      const quedan = (existencias.get(m.tipo_id) ?? SIN_EXISTENCIA).huevos;
+      const quedan = enBodega(saldo, m.tipo_id);
       if (quedan < m.huevos) {
-        notificar('advertencia', `No se puede borrar esta llegada: ya se vendieron parte de esos huevos (quedan ${textoCartones(quedan)}). Borra primero las ventas que sobran o anota la corrección como rotos.`);
+        notificar('advertencia', `No se puede borrar este ingreso: ya se vendió parte de esos huevos (quedan ${textoCartones(quedan)}). Borra primero las ventas que sobran o anota la corrección como rotos.`);
         return;
       }
     }
@@ -160,7 +160,7 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
     setMovAEliminar(null);
   };
 
-  // Corregir una llegada, venta o rotos (solo admin; la base de datos vuelve a revisar que no quede negativo)
+  // Corregir un ingreso, una venta o unos rotos (solo admin; la base de datos vuelve a revisar que no quede negativo)
   const editarMovimiento = async (id: number, cambios: NuevoMovimiento) => {
     if (procesando) return false;
     setProcesando(true);
@@ -260,7 +260,7 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
       <div className="flex min-w-0 flex-1 flex-col">
         <MobileNav
           modulos={modulos}
-          barraMovil={['hue-inicio', 'hue-vender', 'hue-llegadas', 'hue-historial']}
+          barraMovil={['hue-inicio', 'hue-vender', 'hue-inventario', 'hue-historial']}
           moduloActivo={moduloVisible}
           onCambiar={setModulo}
           usuario={usuario}
@@ -284,11 +284,11 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
                   nombreUsuario={usuario.nombre}
                   tipos={tipos}
                   movimientos={movimientos}
-                  existencias={existencias}
+                  saldo={saldo}
                   actualizando={cargando}
                   onActualizar={cargar}
                   onVender={irAVender}
-                  onLlegada={() => setModulo('hue-llegadas')}
+                  onInventario={() => setModulo('hue-inventario')}
                 />
               )}
               {moduloVisible === 'hue-vender' && (
@@ -296,14 +296,22 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
                   key={tipoParaVender ?? 'vender'}
                   tipos={tipos}
                   movimientos={movimientos}
-                  existencias={existencias}
+                  saldo={saldo}
                   tipoInicial={tipoParaVender}
                   procesando={procesando}
                   onGuardar={guardarMovimientos}
                 />
               )}
-              {moduloVisible === 'hue-llegadas' && (
-                <LlegadasView esAdmin={esAdmin} tipos={tipos} movimientos={movimientos} procesando={procesando} onGuardar={guardarMovimientos} />
+              {moduloVisible === 'hue-inventario' && (
+                <InventarioHuevosView
+                  esAdmin={esAdmin}
+                  tipos={tipos}
+                  movimientos={movimientos}
+                  saldo={saldo}
+                  procesando={procesando}
+                  onGuardar={guardarMovimientos}
+                  onPrecioVenta={(tipoId, precio) => actualizarTipo(tipoId, { precio_venta: precio })}
+                />
               )}
               {moduloVisible === 'hue-historial' && (
                 <HistorialHuevosView
@@ -317,7 +325,7 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
               {moduloVisible === 'hue-tipos' && esAdmin && (
                 <TiposHuevoView
                   tipos={tipos}
-                  existencias={existencias}
+                  saldo={saldo}
                   conMovimientos={conMovimientos}
                   procesando={procesando}
                   onCrear={crearTipo}
@@ -360,7 +368,7 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
 
       {tipoAEliminar && (
         <ConfirmDialog titulo={`¿Eliminar el tamaño ${tipoAEliminar.nombre}?`} textoConfirmar="Eliminar" onConfirmar={confirmarEliminarTipo} onCancelar={() => setTipoAEliminar(null)}>
-          <p className="text-tinta-suave">No tiene llegadas ni ventas. Esta acción no se puede deshacer.</p>
+          <p className="text-tinta-suave">No tiene ingresos ni ventas. Esta acción no se puede deshacer.</p>
         </ConfirmDialog>
       )}
     </div>

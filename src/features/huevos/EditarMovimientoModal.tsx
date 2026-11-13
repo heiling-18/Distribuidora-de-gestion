@@ -6,7 +6,6 @@ import { formatoMoneda } from '@/lib/formato';
 import { HUEVOS_POR_CARTON, hoyLocal, textoCartones } from '@/lib/galpones';
 import {
   NOMBRE_CLASE,
-  costoAntesDe,
   saldoPorTipo,
   valorHuevos,
   type MovimientoHuevo,
@@ -24,13 +23,13 @@ interface EditarMovimientoModalProps {
   onCerrar: () => void;
 }
 
-/** Corrige una llegada, venta o rotos ya guardados (solo administrador) */
+/** Corrige un ingreso, una venta o unos rotos ya guardados (solo administrador) */
 export function EditarMovimientoModal({ movimiento: m, tipos, movimientos, procesando, onGuardar, onCerrar }: EditarMovimientoModalProps) {
   const [tipoId, setTipoId] = useState(String(m.tipo_id));
   const [fecha, setFecha] = useState(m.fecha);
   const [cartones, setCartones] = useState(String(Math.floor(m.huevos / HUEVOS_POR_CARTON)));
   const [sueltos, setSueltos] = useState(String(m.huevos % HUEVOS_POR_CARTON));
-  const [precio, setPrecio] = useState(m.clase === 'perdida' ? '' : String(m.precio_carton));
+  const [precio, setPrecio] = useState(m.clase === 'venta' ? String(m.precio_carton) : '');
   const [tercero, setTercero] = useState(m.tercero ?? '');
   const [pago, setPago] = useState<'efectivo' | 'transferencia'>(m.metodo_pago ?? 'efectivo');
   const [notas, setNotas] = useState(m.notas ?? '');
@@ -46,7 +45,7 @@ export function EditarMovimientoModal({ movimiento: m, tipos, movimientos, proce
     e.preventDefault();
     setError('');
     if ('error' in cantidad) return setError(cantidad.error);
-    if (m.clase !== 'perdida' && !(nPrecio > 0)) return setError('Escribe el precio por cartón.');
+    if (m.clase === 'venta' && !(nPrecio > 0)) return setError('Escribe el precio por cartón.');
 
     const nuevoTipo = Number(tipoId);
     const corregido: MovimientoHuevo = { ...m, tipo_id: nuevoTipo, fecha, huevos };
@@ -66,9 +65,8 @@ export function EditarMovimientoModal({ movimiento: m, tipos, movimientos, proce
       tipo_id: nuevoTipo,
       clase: m.clase,
       huevos,
-      precio_carton: m.clase === 'perdida' ? 0 : Math.round(nPrecio),
-      // La venta y los rotos se valoran con el costo promedio que había en ese momento
-      costo_carton: m.clase === 'entrada' ? null : costoAntesDe(movimientos, corregido, nuevoTipo),
+      precio_carton: m.clase === 'venta' ? Math.round(nPrecio) : 0,
+      costo_carton: null,
       tercero: m.clase === 'perdida' ? null : tercero.trim() || null,
       metodo_pago: m.clase === 'venta' ? pago : null,
       notas: notas.trim() || null,
@@ -85,10 +83,10 @@ export function EditarMovimientoModal({ movimiento: m, tipos, movimientos, proce
 
         <CantidadHuevos cartones={cartones} sueltos={sueltos} onCartones={setCartones} onSueltos={setSueltos} />
 
-        {m.clase !== 'perdida' && (
+        {m.clase === 'venta' && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field
-              etiqueta={m.clase === 'entrada' ? 'Pagaste por cartón' : 'Vendido a (cartón)'}
+              etiqueta="Vendido a (cartón)"
               type="number"
               inputMode="numeric"
               min="0"
@@ -97,13 +95,11 @@ export function EditarMovimientoModal({ movimiento: m, tipos, movimientos, proce
               onChange={(e) => setPrecio(e.target.value)}
               className="tabular"
             />
-            <Field
-              etiqueta={m.clase === 'entrada' ? 'Quién los trajo' : 'Cliente'}
-              placeholder="Opcional"
-              value={tercero}
-              onChange={(e) => setTercero(e.target.value)}
-            />
+            <Field etiqueta="Cliente" placeholder="Opcional" value={tercero} onChange={(e) => setTercero(e.target.value)} />
           </div>
+        )}
+        {m.clase === 'entrada' && (
+          <Field etiqueta="De qué galpón" placeholder="Opcional" value={tercero} onChange={(e) => setTercero(e.target.value)} />
         )}
 
         {m.clase === 'venta' && (
@@ -128,7 +124,7 @@ export function EditarMovimientoModal({ movimiento: m, tipos, movimientos, proce
 
         <Field etiqueta="Notas" placeholder="Opcional" value={notas} onChange={(e) => setNotas(e.target.value)} />
 
-        {huevos > 0 && m.clase !== 'perdida' && nPrecio > 0 && (
+        {huevos > 0 && m.clase === 'venta' && nPrecio > 0 && (
           <p className="rounded-campo bg-hundido px-4 py-3 text-[15px] text-tinta-suave tabular">
             {textoCartones(huevos)} = <strong className="text-tinta">{formatoMoneda(valorHuevos(huevos, nPrecio))}</strong>
           </p>

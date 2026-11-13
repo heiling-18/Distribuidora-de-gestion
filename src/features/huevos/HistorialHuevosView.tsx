@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import { Badge, Button, EmptyState, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
 import { formatoDia, textoCartones } from '@/lib/galpones';
-import { NOMBRE_CLASE, gananciaVenta, totalesMovimientos, valorHuevos, type ClaseMovimiento, type MovimientoHuevo, type TipoHuevo } from '@/lib/huevos';
+import { NOMBRE_CLASE, totalesMovimientos, valorHuevos, type ClaseMovimiento, type MovimientoHuevo, type TipoHuevo } from '@/lib/huevos';
 import { claveMes, mesDesplazado, nombreMes } from '@/features/reportes/meses';
 
 interface HistorialHuevosViewProps {
@@ -18,7 +18,7 @@ interface HistorialHuevosViewProps {
 
 const TONO_CLASE = { entrada: 'mayor', venta: 'exito', perdida: 'error' } as const;
 
-/** Todo lo que pasó con los huevos, mes por mes, con lo comprado, vendido y ganado */
+/** Todo lo que pasó con los huevos, mes por mes: lo vendido, lo cargado al inventario y los rotos */
 export function HistorialHuevosView(p: HistorialHuevosViewProps) {
   const mesActual = claveMes(new Date());
   const [mes, setMes] = useState(mesActual);
@@ -37,7 +37,7 @@ export function HistorialHuevosView(p: HistorialHuevosViewProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader titulo="Historial de huevos" descripcion="Llegadas, ventas y huevos rotos, con su precio de cada día." />
+      <PageHeader titulo="Historial de huevos" descripcion="Ventas, ingresos al inventario y huevos rotos, mes por mes." />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-bold capitalize">{nombreMes(mes)}</h2>
@@ -56,16 +56,15 @@ export function HistorialHuevosView(p: HistorialHuevosViewProps) {
         </div>
       </div>
 
-      <section aria-label="Resumen del mes" className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Resumen del mes" className="grid grid-cols-1 gap-0.5 overflow-hidden rounded-tarjeta bg-neutro-hover sm:grid-cols-3">
         <StatCard tono="oscuro" etiqueta="Vendido" valor={formatoMoneda(tot.vendido)} detalle={textoCartones(tot.huevosVendidos)} />
-        <StatCard etiqueta="Ganancia" valor={formatoMoneda(tot.ganancia - tot.perdido)} detalle={tot.perdido > 0 ? `Ya descontados ${formatoMoneda(tot.perdido)} de rotos` : 'Venta menos lo que costaron'} />
-        <StatCard etiqueta="Comprado" valor={formatoMoneda(tot.comprado)} detalle={textoCartones(tot.huevosComprados)} />
-        <StatCard etiqueta="Rotos" valor={textoCartones(tot.huevosPerdidos)} detalle={tot.perdido > 0 ? `Costaron ${formatoMoneda(tot.perdido)}` : 'Sin pérdidas'} />
+        <StatCard etiqueta="Cargado al inventario" valor={textoCartones(tot.huevosIngresados)} detalle="Ingresos del mes" />
+        <StatCard etiqueta="Rotos" valor={textoCartones(tot.huevosRotos)} detalle={tot.huevosRotos > 0 ? 'Descontados del inventario' : 'Sin pérdidas'} />
       </section>
 
       <Panel>
         <div className="flex flex-wrap gap-2 px-6 pt-5">
-          {(['todos', 'entrada', 'venta', 'perdida'] as const).map((c) => (
+          {(['todos', 'venta', 'entrada', 'perdida'] as const).map((c) => (
             <button
               key={c}
               type="button"
@@ -76,24 +75,23 @@ export function HistorialHuevosView(p: HistorialHuevosViewProps) {
                 filtro === c ? 'bg-noche text-crema' : 'bg-neutro text-tinta hover:bg-neutro-hover'
               )}
             >
-              {c === 'todos' ? 'Todo' : c === 'entrada' ? 'Llegadas' : c === 'venta' ? 'Ventas' : 'Rotos'}
+              {c === 'todos' ? 'Todo' : c === 'entrada' ? 'Ingresos' : c === 'venta' ? 'Ventas' : 'Rotos'}
             </button>
           ))}
         </div>
         {lista.length === 0 ? (
           <EmptyState className="m-6" titulo="No hay movimientos" descripcion="En este mes no hay nada anotado con ese filtro." />
         ) : (
-          <Tabla minAncho={860} className="mt-4">
+          <Tabla minAncho={780} className="mt-4">
             <thead>
               <tr>
                 <Th>Fecha</Th>
                 <Th>Qué</Th>
                 <Th>Tamaño</Th>
                 <Th>Cantidad</Th>
-                <Th alinear="der">Precio cartón</Th>
                 <Th alinear="der">Total</Th>
-                <Th alinear="der">Ganancia</Th>
-                <Th>Quién</Th>
+                <Th>Cliente / galpón</Th>
+                <Th>Anotó</Th>
                 {p.esAdmin && <Th alinear="der"><span className="sr-only">Acciones</span></Th>}
               </tr>
             </thead>
@@ -104,14 +102,11 @@ export function HistorialHuevosView(p: HistorialHuevosViewProps) {
                   <Td><Badge tono={TONO_CLASE[m.clase]}>{NOMBRE_CLASE[m.clase]}</Badge></Td>
                   <Td className="font-semibold">{nombreTipo(m.tipo_id)}</Td>
                   <Td className="whitespace-nowrap tabular">{textoCartones(m.huevos)}</Td>
-                  <Td alinear="der" className="whitespace-nowrap tabular">{m.clase === 'perdida' ? '—' : formatoMoneda(m.precio_carton)}</Td>
                   <Td alinear="der" className="whitespace-nowrap font-bold tabular">
-                    {m.clase === 'perdida' ? '—' : formatoMoneda(valorHuevos(m.huevos, m.precio_carton))}
+                    {m.clase === 'venta' ? formatoMoneda(valorHuevos(m.huevos, m.precio_carton)) : '—'}
                   </Td>
-                  <Td alinear="der" className="whitespace-nowrap tabular">
-                    {m.clase === 'venta' ? formatoMoneda(gananciaVenta(m)) : m.clase === 'perdida' ? <span className="text-rojo-oscuro">−{formatoMoneda(valorHuevos(m.huevos, m.costo_carton ?? 0))}</span> : '—'}
-                  </Td>
-                  <Td className="text-tinta-suave">{[m.tercero, m.registrado_por && `anotó ${m.registrado_por}`].filter(Boolean).join(' · ') || '—'}</Td>
+                  <Td className="text-tinta-suave">{m.tercero || '—'}</Td>
+                  <Td className="text-tinta-suave">{m.registrado_por || '—'}</Td>
                   {p.esAdmin && (
                     <Td alinear="der" className="whitespace-nowrap">
                       <Button variante="fantasma" tamano="sm" onClick={() => p.onEditar(m)} aria-label={`Corregir ${NOMBRE_CLASE[m.clase].toLowerCase()} del ${formatoDia(m.fecha)}`}>

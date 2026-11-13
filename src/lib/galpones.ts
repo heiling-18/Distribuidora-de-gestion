@@ -125,6 +125,8 @@ export const aCartones = (huevos: number) => ({
 
 export const textoCartones = (huevos: number) => {
   const { cartones, sueltos } = aCartones(huevos);
+  // Menos de un cartón: "5 huevos" en vez de "0 cartones y 5 huevos"
+  if (cartones === 0 && sueltos > 0) return `${sueltos} ${sueltos === 1 ? 'huevo' : 'huevos'}`;
   const c = `${cartones} ${cartones === 1 ? 'cartón' : 'cartones'}`;
   return sueltos > 0 ? `${c} y ${sueltos} ${sueltos === 1 ? 'huevo' : 'huevos'}` : c;
 };
