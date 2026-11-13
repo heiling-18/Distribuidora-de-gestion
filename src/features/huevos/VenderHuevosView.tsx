@@ -162,6 +162,18 @@ function VentaConCarrito({
   };
   const quitar = (l: LineaCarrito) => setCarrito((c) => c.filter((x) => !(x.tipoId === l.tipoId && x.forma === l.forma)));
 
+  /** Cantidad escrita a mano; no deja pasar de lo que hay (contando las otras líneas del mismo tamaño) */
+  const fijarCantidad = (l: LineaCarrito, texto: string) => {
+    setError('');
+    const limpio = texto.replace(/\D/g, '');
+    const otros = huevosEnCarrito(l.tipoId) - l.cantidad * huevosPor(l.forma);
+    const maximo = Math.max(0, Math.floor((enBodega(saldo, l.tipoId) - otros) / huevosPor(l.forma)));
+    const n = limpio === '' ? 0 : Math.min(Number(limpio), maximo);
+    setCarrito((c) => c.map((x) => (x.tipoId === l.tipoId && x.forma === l.forma ? { ...x, cantidad: n } : x)));
+  };
+  // Si al salir del campo quedó en 0 o vacío, la línea sale del carrito
+  const limpiarVacias = () => setCarrito((c) => c.filter((x) => x.cantidad > 0));
+
   const totalDe = (l: LineaCarrito) => {
     const t = tipoDe(l.tipoId);
     return t ? l.cantidad * precioDe(t, l.forma) : 0;
@@ -171,14 +183,16 @@ function VentaConCarrito({
 
   const cobrar = async () => {
     setError('');
-    if (carrito.length === 0) return;
-    for (const l of carrito) {
+    // Las líneas que quedaron vacías mientras se escribía no se cobran
+    const lineas = carrito.filter((l) => l.cantidad > 0);
+    if (lineas.length === 0) return;
+    for (const l of lineas) {
       const t = tipoDe(l.tipoId);
       if (!t) return setError('Hay un tamaño que ya no existe en el carrito. Quítalo.');
       if (huevosEnCarrito(t.id) > enBodega(saldo, t.id)) return setError(`No alcanzan los huevos ${t.nombre}: hay ${textoCartones(enBodega(saldo, t.id))}.`);
     }
     // Cada línea del carrito es una venta (mismo cliente y pago); se guardan todas juntas
-    const movs: NuevoMovimiento[] = carrito.map((l) => {
+    const movs: NuevoMovimiento[] = lineas.map((l) => {
       const t = tipoDe(l.tipoId)!;
       return {
         fecha: hoyLocal(),
@@ -274,7 +288,16 @@ function VentaConCarrito({
                     <button type="button" onClick={() => agregar(t, l.forma, -1)} aria-label="Quitar uno" className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg bg-neutro hover:bg-neutro-hover">
                       <Minus className="h-4 w-4" aria-hidden="true" />
                     </button>
-                    <span className="min-w-7 text-center font-bold tabular">{l.cantidad}</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      aria-label={`Cantidad de ${t.nombre} ${l.forma === 'carton' ? 'en cartones' : 'en huevos'}`}
+                      value={l.cantidad === 0 ? '' : String(l.cantidad)}
+                      onChange={(e) => fijarCantidad(l, e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={limpiarVacias}
+                      className="h-9 w-14 rounded-lg border-[1.5px] border-borde bg-superficie text-center font-bold tabular focus:border-rojo focus:outline-none focus:ring-4 focus:ring-rojo/15"
+                    />
                     <button
                       type="button"
                       onClick={() => agregar(t, l.forma, 1)}
@@ -325,7 +348,7 @@ function VentaConCarrito({
 
         {error && <Alert tono="error">{error}</Alert>}
 
-        <Button tamano="lg" anchoCompleto disabled={carrito.length === 0} cargando={procesando} onClick={cobrar}>
+        <Button tamano="lg" anchoCompleto disabled={total <= 0} cargando={procesando} onClick={cobrar}>
           {procesando ? 'Registrando venta…' : `Cobrar ${formatoMoneda(total)}`}
         </Button>
       </aside>
