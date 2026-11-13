@@ -10,6 +10,11 @@ interface CierreCajaModalProps {
   gastosHoy: number;
   esperado: number;
   contado: string;
+  /** Caja automática: se pregunta cuánto se deja para mañana */
+  automatica: boolean;
+  /** Lo que se deja en la gaveta; vacío = todo lo contado */
+  baseSiguiente: string;
+  onBaseSiguiente: (v: string) => void;
   observaciones: string;
   procesando: boolean;
   onContado: (v: string) => void;
@@ -24,6 +29,8 @@ export function CierreCajaModal(p: CierreCajaModalProps) {
   const hayConteo = p.contado.trim() !== '' && !isNaN(contado);
   const diferencia = hayConteo ? contado - p.esperado : 0;
   const negativa = p.esperado < 0;
+  const deja = p.baseSiguiente.trim() === '' ? contado : Number(p.baseSiguiente);
+  const dejaValida = !isNaN(deja) && deja >= 0 && deja <= contado;
 
   return (
     <Modal titulo="Cerrar caja" descripcion="Cuenta el efectivo de la gaveta y compáralo con lo esperado." onCerrar={p.onCancelar} ancho="md">
@@ -74,6 +81,26 @@ export function CierreCajaModal(p: CierreCajaModalProps) {
         </div>
       )}
 
+      {p.automatica && hayConteo && (
+        <Field
+          etiqueta="¿Cuánto dejas en la gaveta para mañana?"
+          type="number"
+          inputMode="numeric"
+          min="0"
+          max={contado}
+          placeholder={String(contado)}
+          value={p.baseSiguiente}
+          onChange={(e) => p.onBaseSiguiente(e.target.value)}
+          error={dejaValida ? undefined : `Debe estar entre $0 y lo contado (${formatoMoneda(contado)}).`}
+          ayuda={
+            dejaValida
+              ? `Mañana la caja se abre sola con ${formatoMoneda(deja)}${contado - deja > 0 ? ` · retiras ${formatoMoneda(contado - deja)}` : ''}`
+              : undefined
+          }
+          className="text-lg font-bold tabular"
+        />
+      )}
+
       <Field
         etiqueta="Observaciones"
         placeholder="Novedades del día (opcional)"
@@ -83,7 +110,7 @@ export function CierreCajaModal(p: CierreCajaModalProps) {
 
       <div className="grid grid-cols-2 gap-2.5">
         <Button variante="secundario" onClick={p.onCancelar}>Cancelar</Button>
-        <Button disabled={negativa || !hayConteo} cargando={p.procesando} onClick={p.onConfirmar}>Cerrar caja</Button>
+        <Button disabled={negativa || !hayConteo || (p.automatica && !dejaValida)} cargando={p.procesando} onClick={p.onConfirmar}>Cerrar caja</Button>
       </div>
     </Modal>
   );

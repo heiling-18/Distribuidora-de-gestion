@@ -77,8 +77,8 @@ export function POSView(p: POSViewProps) {
 
         {!p.cajaAbierta && (
           <Alert tono="aviso">
-            La caja está cerrada: puedes armar el carrito, pero para cobrar debes{' '}
-            <button type="button" onClick={p.onAbrirCaja} className="cursor-pointer font-bold underline">abrir la caja</button>.
+            La caja está cerrada: puedes armar el carrito, pero no cobrar hasta que se abra.{' '}
+            <button type="button" onClick={p.onAbrirCaja} className="cursor-pointer font-bold underline">Ver caja</button>
           </Alert>
         )}
 

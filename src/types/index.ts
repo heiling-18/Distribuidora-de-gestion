@@ -82,6 +82,14 @@ export interface SesionCaja {
   estado: 'abierta' | 'cerrada';
   usuario_apertura?: string;
   created_at?: string;
+  /** Lo que se dejó en la gaveta al cerrar: con eso se abre sola la caja siguiente */
+  base_siguiente?: number | null;
+  /** true si la abrió la app sola con la base del cierre anterior */
+  apertura_automatica?: boolean;
+  /** Si el administrador cambió la base: la que tenía antes, por qué y quién */
+  base_original?: number | null;
+  ajuste_motivo?: string | null;
+  ajustada_por?: string | null;
 }
 
 /** Fila de cierres_caja (comprobante de arqueo) */
@@ -97,6 +105,10 @@ export interface CierreCaja {
   observaciones: string;
   responsable: string;
   hora_cierre: string;
+  /** Lo que se dejó en la gaveta para el día siguiente */
+  base_siguiente?: number | null;
+  /** Lo que se sacó de la gaveta al cerrar (contado − lo que se dejó) */
+  retirado?: number | null;
 }
 
 /** Fila de cierres_mensuales (acta del mes, solo admin) */

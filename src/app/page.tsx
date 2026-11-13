@@ -62,6 +62,24 @@ const cargarPerfilUsuario = async (email: string): Promise<Usuario | null> => {
   };
 };
 
+/** Fila de la tabla caja → SesionCaja (Supabase devuelve los numeric como texto) */
+const aSesionCaja = (c: Record<string, unknown>): SesionCaja => {
+  const num = (v: unknown) => (v == null ? null : Number(v));
+  return {
+    id: Number(c.id),
+    fecha: String(c.fecha ?? ''),
+    monto_inicial: Number(c.monto_inicial || 0),
+    estado: c.estado === 'abierta' ? 'abierta' : 'cerrada',
+    usuario_apertura: 'Admin/Vendedor',
+    created_at: c.created_at as string | undefined,
+    base_siguiente: num(c.base_siguiente),
+    apertura_automatica: !!c.apertura_automatica,
+    base_original: num(c.base_original),
+    ajuste_motivo: (c.ajuste_motivo as string | null) ?? null,
+    ajustada_por: (c.ajustada_por as string | null) ?? null,
+  };
+};
+
 export default function DYMSApp() {
   // 1. Sesión y Navegación
   const [usuario, setUsuario] = useState<Usuario | null>(null);
@@ -128,6 +146,11 @@ export default function DYMSApp() {
   // 6. Estado de Caja
   const [montoAperturaInput, setMontoAperturaInput] = useState('');
   const [modalCierreCaja, setModalCierreCaja] = useState(false);
+  // Caja automática: la última caja (abierta o cerrada) y si la migración ya está en la base
+  const [ultimaCaja, setUltimaCaja] = useState<SesionCaja | null>(null);
+  const [cajaAutomatica, setCajaAutomatica] = useState(false);
+  /** Lo que se deja en la gaveta para mañana; vacío = todo lo contado */
+  const [baseSiguienteInput, setBaseSiguienteInput] = useState('');
   const [dineroRealContado, setDineroRealContado] = useState('');
   const [obsCierre, setObsCierre] = useState('');
   const [comprobanteCierreData, setComprobanteCierreData] = useState<CierreCaja | null>(null);
@@ -306,29 +329,28 @@ export default function DYMSApp() {
         localStorage.removeItem('dyms_clientes');
       }
 
-      // 5. PERSISTENCIA DE CAJA: No cerrar en recarga (F5)
+      // 5. CAJA: la abierta se conserva al recargar; si no hay, se abre sola con la base que se dejó al cerrar
       const { data: cj } = await supabase.from('caja').select('*').order('id', { ascending: false }).limit(1);
-      const cajaGuardadaLocal = localStorage.getItem('dyms_caja_activa');
-
-      if (cj && cj.length > 0 && cj[0].estado === 'abierta') {
-        const sesionAbierta: SesionCaja = {
-          id: cj[0].id,
-          fecha: cj[0].fecha,
-          monto_inicial: Number(cj[0].monto_inicial || 0),
-          estado: 'abierta',
-          usuario_apertura: 'Admin/Vendedor',
-          created_at: cj[0].created_at
-        };
-        setCajaActual(sesionAbierta);
-        localStorage.setItem('dyms_caja_activa', JSON.stringify(sesionAbierta));
-      } else {
-        setCajaActual(null);
-        localStorage.removeItem('dyms_caja_activa');
+      const ultima = cj && cj.length > 0 ? aSesionCaja(cj[0]) : null;
+      let abierta = ultima?.estado === 'abierta' ? ultima : null;
+      // Las columnas nuevas solo existen si ya se corrió la migración de caja automática
+      let automatica = !!cj?.[0] && 'base_siguiente' in cj[0];
+      if (!abierta) {
+        const { data: auto, error: errAuto } = await supabase.rpc('abrir_caja_automatica');
+        if (!errAuto) automatica = true;
+        if (auto && auto.id) {
+          abierta = aSesionCaja(auto);
+          mostrarNotificacion('info', `Caja abierta con ${formatoMoneda(abierta.monto_inicial)}.`);
+        }
       }
+      setCajaAutomatica(automatica);
+      setUltimaCaja(abierta ?? ultima);
+      setCajaActual(abierta);
+      if (abierta) localStorage.setItem('dyms_caja_activa', JSON.stringify(abierta));
+      else localStorage.removeItem('dyms_caja_activa');
 
       // 6. Historial Cierres
       const { data: cierres } = await supabase.from('cierres_caja').select('*').order('hora_cierre', { ascending: false });
-      const cierresLocal = localStorage.getItem('dyms_cierres');
       if (cierres && cierres.length > 0) {
         setHistorialCierres(cierres);
       } else {
@@ -482,10 +504,14 @@ export default function DYMSApp() {
     return productos.reduce((acc, p) => acc + (p.stock * p.precio_venta), 0);
   }, [productos]);
 
-  // Apertura de Caja
+  // Apertura a mano: con la caja automática, solo el administrador (la primera vez o para abrir de nuevo el mismo día)
   const handleAperturaCaja = async (e: React.FormEvent) => {
     e.preventDefault();
     if (procesandoCaja) return;
+    if (cajaAutomatica && usuario?.rol !== 'admin') {
+      mostrarNotificacion('advertencia', 'La caja se abre sola. Si necesitas abrirla ahora, pídeselo al administrador.');
+      return;
+    }
     const monto = Number(montoAperturaInput);
     if (isNaN(monto) || monto < 0) {
       mostrarNotificacion('advertencia', 'Ingresa un monto inicial válido (mayor o igual a $0).');
@@ -494,7 +520,8 @@ export default function DYMSApp() {
 
     setProcesandoCaja(true);
     try {
-      const hoy = new Date().toISOString().split('T')[0];
+      // Día local (Colombia), no UTC: de noche toISOString ya marcaría el día siguiente
+      const hoy = new Date().toLocaleDateString('en-CA');
       const nuevaCajaDB = {
         fecha: hoy,
         monto_inicial: monto,
@@ -513,9 +540,10 @@ export default function DYMSApp() {
       };
 
       setCajaActual(sesionAbierta);
+      setUltimaCaja(sesionAbierta);
       localStorage.setItem('dyms_caja_activa', JSON.stringify(sesionAbierta));
       setMontoAperturaInput('');
-      mostrarNotificacion('exito', '¡Caja abierta exitosamente para la jornada!');
+      mostrarNotificacion('exito', `Caja abierta con ${formatoMoneda(monto)}.`);
     } catch (err) {
       mostrarNotificacion('error', 'Error abriendo caja: ' + (err as Error).message);
     } finally {
@@ -537,6 +565,14 @@ export default function DYMSApp() {
       mostrarNotificacion('error', '❌ NO SE PERMITE CERRAR CAJA EN NEGATIVO. Debes corregir los egresos o cuadrar los ingresos antes de cerrar.');
       return;
     }
+
+    // Lo que se deja en la gaveta para mañana (vacío = todo lo contado) y lo que se retira
+    const baseSiguiente = baseSiguienteInput.trim() === '' ? real : Number(baseSiguienteInput);
+    if (isNaN(baseSiguiente) || baseSiguiente < 0 || baseSiguiente > real) {
+      mostrarNotificacion('advertencia', `Lo que dejas para mañana debe estar entre $0 y lo contado (${formatoMoneda(real)}).`);
+      return;
+    }
+    const retirado = real - baseSiguiente;
 
     // Descuadre de caja contra el dinero físico esperado
     const dif = real - efectivoFisicoEnCaja;
@@ -560,21 +596,28 @@ export default function DYMSApp() {
       diferencia: dif,
       observaciones: obsCierre.trim() || 'Cierre de jornada regular',
       responsable: usuario?.nombre || 'Admin',
-      hora_cierre: new Date().toISOString()
+      hora_cierre: new Date().toISOString(),
+      // Columnas de la caja automática: solo si la migración ya está en la base
+      ...(cajaAutomatica ? { base_siguiente: baseSiguiente, retirado } : {})
     };
 
     const { error: errCierre } = await supabase.from('cierres_caja').insert([datosCierre]);
     const { error: errCaja } = errCierre
       ? { error: null }
-      : await supabase.from('caja').update({ estado: 'cerrada', monto_cierre: real }).eq('id', cajaActual.id);
+      : await supabase
+          .from('caja')
+          .update({ estado: 'cerrada', monto_cierre: real, ...(cajaAutomatica ? { base_siguiente: baseSiguiente } : {}) })
+          .eq('id', cajaActual.id);
     if (errCierre || errCaja) {
       mostrarNotificacion('error', 'No se pudo cerrar la caja: ' + (errCierre || errCaja)?.message);
       setProcesandoCaja(false);
       return;
     }
 
+    setUltimaCaja({ ...cajaActual, estado: 'cerrada', base_siguiente: cajaAutomatica ? baseSiguiente : null });
     setCajaActual(prev => prev ? { ...prev, estado: 'cerrada' } : null);
     localStorage.removeItem('dyms_caja_activa');
+    setBaseSiguienteInput('');
 
     const nuevosCierres = [datosCierre, ...historialCierres];
     setHistorialCierres(nuevosCierres);
@@ -585,7 +628,33 @@ export default function DYMSApp() {
     setDineroRealContado('');
     setObsCierre('');
     setProcesandoCaja(false);
-    mostrarNotificacion('exito', '¡Caja cerrada correctamente! Comprobante emitido.');
+    mostrarNotificacion(
+      'exito',
+      cajaAutomatica
+        ? `Caja cerrada. Mañana se abre sola con ${formatoMoneda(baseSiguiente)}.`
+        : '¡Caja cerrada correctamente! Comprobante emitido.'
+    );
+  };
+
+  // El administrador cambia la base de la caja abierta (queda la original, el motivo y quién)
+  const handleAjustarBase = async (monto: number, motivo: string) => {
+    if (usuario?.rol !== 'admin' || procesandoCaja) return false;
+    setProcesandoCaja(true);
+    try {
+      const { data, error } = await supabase.rpc('ajustar_base_caja', { p_monto: monto, p_motivo: motivo });
+      if (error || !data) {
+        mostrarNotificacion('error', 'No se pudo cambiar la base: ' + (error?.message || 'sin respuesta del servidor'));
+        return false;
+      }
+      const caja = aSesionCaja(data);
+      setCajaActual(caja);
+      setUltimaCaja(caja);
+      localStorage.setItem('dyms_caja_activa', JSON.stringify(caja));
+      mostrarNotificacion('exito', `Caja abierta con ${formatoMoneda(caja.monto_inicial)}.`);
+      return true;
+    } finally {
+      setProcesandoCaja(false);
+    }
   };
 
   // ==========================================
@@ -1364,6 +1433,21 @@ ${detalle}
   // ==========================================
   const stockBajo = productos.filter(p => p.stock <= p.stock_minimo).length;
   const cajaAbierta = cajaActual?.estado === 'abierta';
+  // Avisos de la caja: cerrada (y cuándo se abre) o abierta desde otro día sin cerrar
+  const hoyCaja = new Date().toLocaleDateString('en-CA');
+  const cajaDeOtroDia = cajaAbierta && !!cajaActual?.fecha && cajaActual.fecha.slice(0, 10) < hoyCaja;
+  const textoCajaCerrada = !cajaAutomatica
+    ? 'La caja está cerrada. Ábrela para poder vender y registrar movimientos.'
+    : ultimaCaja?.base_siguiente != null && ultimaCaja.fecha.slice(0, 10) >= hoyCaja
+      ? `La caja de hoy ya se cerró. Mañana se abre sola con ${formatoMoneda(ultimaCaja.base_siguiente)}.`
+      : usuario.rol === 'admin'
+        ? 'La caja está cerrada. Ábrela con la base que quieras; desde el próximo cierre se abrirá sola.'
+        : 'La caja está cerrada. El administrador debe abrirla esta primera vez; después se abre sola.';
+  const textoAvisoCaja = !cajaAbierta
+    ? textoCajaCerrada
+    : cajaDeOtroDia
+      ? `La caja del ${cajaActual?.fecha.slice(0, 10)} sigue abierta: ciérrala para empezar el día.`
+      : null;
   const modulosDistribuidora = modulosVisibles(usuario.rol === 'admin');
   const otrasSecciones = cambiosDesde('distribuidora');
 
@@ -1406,7 +1490,7 @@ ${detalle}
         />
 
         {/* Aviso de caja cerrada */}
-        {!cajaAbierta && <CajaCerradaBanner onAbrir={() => setModuloActivo('caja')} />}
+        {textoAvisoCaja && <CajaCerradaBanner texto={textoAvisoCaja} onVerCaja={() => setModuloActivo('caja')} />}
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 pb-28 pt-6 sm:px-8 lg:pb-10 lg:pt-8">
@@ -1502,6 +1586,12 @@ ${detalle}
         {moduloActivo === 'caja' && (
           <CajaView
             caja={cajaActual}
+            esAdmin={usuario.rol === 'admin'}
+            automatica={cajaAutomatica}
+            textoCerrada={textoCajaCerrada}
+            deOtroDia={cajaDeOtroDia}
+            sugerenciaBase={ultimaCaja?.base_siguiente ?? null}
+            onAjustarBase={handleAjustarBase}
             totales={{
               efectivoHoy: totalVentasEfectivoHoy,
               transferenciaHoy: totalVentasTransfHoy,
@@ -1516,6 +1606,7 @@ ${detalle}
             procesando={procesandoCaja}
             onCerrarCaja={() => {
               setDineroRealContado(String(efectivoFisicoEnCaja));
+              setBaseSiguienteInput('');
               setModalCierreCaja(true);
             }}
             onVerComprobante={setComprobanteCierreData}
@@ -1635,6 +1726,9 @@ ${detalle}
           gastosHoy={totalGastosHoy}
           esperado={efectivoFisicoEnCaja}
           contado={dineroRealContado}
+          automatica={cajaAutomatica}
+          baseSiguiente={baseSiguienteInput}
+          onBaseSiguiente={setBaseSiguienteInput}
           observaciones={obsCierre}
           procesando={procesandoCaja}
           onContado={setDineroRealContado}

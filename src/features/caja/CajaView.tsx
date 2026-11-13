@@ -1,13 +1,23 @@
 'use client';
 
-import React from 'react';
-import { Lock, Receipt, Wallet } from 'lucide-react';
-import { Button, EmptyState, Field, Fila, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
+import React, { useState } from 'react';
+import { Lock, PencilLine, Receipt, Wallet } from 'lucide-react';
+import { Alert, Button, EmptyState, Field, Fila, Modal, PageHeader, Panel, StatCard, Tabla, Td, Th, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
 import type { CierreCaja, SesionCaja } from '@/types';
 
 interface CajaViewProps {
   caja: SesionCaja | null;
+  esAdmin: boolean;
+  /** La caja se abre sola con la base del cierre anterior (migración aplicada) */
+  automatica: boolean;
+  /** Mensaje cuando está cerrada (cuándo se abre o quién la abre) */
+  textoCerrada: string;
+  /** Sigue abierta la caja de un día anterior */
+  deOtroDia: boolean;
+  /** Base sugerida para abrir a mano: lo que se dejó en el último cierre */
+  sugerenciaBase: number | null;
+  onAjustarBase: (monto: number, motivo: string) => Promise<boolean>;
   totales: {
     efectivoHoy: number;
     transferenciaHoy: number;
@@ -26,21 +36,43 @@ interface CajaViewProps {
 
 export function CajaView(p: CajaViewProps) {
   const abierta = p.caja?.estado === 'abierta';
+  // Con la caja automática, solo el administrador abre a mano; sin la migración, cualquiera (como antes)
+  const puedeAbrirAMano = !p.automatica || p.esAdmin;
+  const [ajustando, setAjustando] = useState(false);
 
   return (
     <div className="flex flex-col gap-7">
       <PageHeader
         titulo="Caja"
-        descripcion={abierta ? 'Caja abierta · el arqueo se actualiza con cada venta y gasto' : 'La caja está cerrada'}
+        descripcion={abierta && p.caja ? `Caja abierta con ${formatoMoneda(p.caja.monto_inicial)}` : 'La caja está cerrada'}
         acciones={
           abierta ? (
-            <Button onClick={p.onCerrarCaja}>
-              <Lock className="h-5 w-5" aria-hidden="true" />
-              Cerrar caja
-            </Button>
+            <div className="flex flex-wrap gap-2.5">
+              {p.esAdmin && p.automatica && (
+                <Button variante="secundario" onClick={() => setAjustando(true)}>
+                  <PencilLine className="h-5 w-5" aria-hidden="true" />
+                  Ajustar base
+                </Button>
+              )}
+              <Button onClick={p.onCerrarCaja}>
+                <Lock className="h-5 w-5" aria-hidden="true" />
+                Cerrar caja
+              </Button>
+            </div>
           ) : undefined
         }
       />
+
+      {abierta && p.deOtroDia && (
+        <Alert tono="aviso">Esta caja es del {p.caja?.fecha.slice(0, 10)} y no se cerró. Ciérrala para que la de hoy se abra sola.</Alert>
+      )}
+      {abierta && p.caja?.ajustada_por && (
+        <Alert tono="info">
+          Base cambiada por {p.caja.ajustada_por}
+          {p.caja.base_original != null && ` (antes ${formatoMoneda(p.caja.base_original)})`}
+          {p.caja.ajuste_motivo && `: ${p.caja.ajuste_motivo}`}
+        </Alert>
+      )}
 
       {!abierta || !p.caja ? (
         <Panel className="flex flex-col items-center gap-5 px-6 py-12 text-center">
@@ -48,23 +80,26 @@ export function CajaView(p: CajaViewProps) {
             <Wallet className="h-8 w-8" aria-hidden="true" />
           </span>
           <div className="flex max-w-md flex-col gap-2">
-            <h2 className="font-display text-[28px] font-extrabold tracking-[-0.02em]">Abre la caja del día</h2>
-            <p className="text-[15px] text-tinta-suave">Escribe con cuánto efectivo empiezas para dar vueltas. Después podrás vender y registrar gastos.</p>
+            <h2 className="font-display text-[28px] font-extrabold tracking-[-0.02em]">{puedeAbrirAMano ? 'Abrir la caja' : 'Caja cerrada'}</h2>
+            <p className="text-[15px] text-tinta-suave">{p.textoCerrada}</p>
           </div>
-          <form onSubmit={p.onAbrir} className="flex w-full max-w-sm flex-col gap-4 text-left">
-            <Field
-              etiqueta="Base en efectivo"
-              type="number"
-              inputMode="numeric"
-              required
-              min="0"
-              placeholder="300000"
-              value={p.montoApertura}
-              onChange={(e) => p.onMontoApertura(e.target.value)}
-              className="text-center text-lg font-bold tabular"
-            />
-            <Button type="submit" tamano="lg" anchoCompleto cargando={p.procesando}>Abrir caja</Button>
-          </form>
+          {puedeAbrirAMano && (
+            <form onSubmit={p.onAbrir} className="flex w-full max-w-sm flex-col gap-4 text-left">
+              <Field
+                etiqueta="Base en efectivo"
+                type="number"
+                inputMode="numeric"
+                required
+                min="0"
+                placeholder={p.sugerenciaBase != null ? String(p.sugerenciaBase) : '300000'}
+                value={p.montoApertura}
+                onChange={(e) => p.onMontoApertura(e.target.value)}
+                ayuda={p.sugerenciaBase != null ? `En el último cierre se dejaron ${formatoMoneda(p.sugerenciaBase)}` : undefined}
+                className="text-center text-lg font-bold tabular"
+              />
+              <Button type="submit" tamano="lg" anchoCompleto cargando={p.procesando}>Abrir caja</Button>
+            </form>
+          )}
         </Panel>
       ) : (
         <>
@@ -152,6 +187,67 @@ export function CajaView(p: CajaViewProps) {
           </Tabla>
         )}
       </Panel>
+
+      {ajustando && p.caja && (
+        <AjustarBaseModal
+          baseActual={p.caja.monto_inicial}
+          procesando={p.procesando}
+          onGuardar={async (monto, motivo) => {
+            if (await p.onAjustarBase(monto, motivo)) setAjustando(false);
+          }}
+          onCerrar={() => setAjustando(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/** El administrador cambia la base de la caja abierta, con un motivo que queda guardado */
+function AjustarBaseModal({
+  baseActual,
+  procesando,
+  onGuardar,
+  onCerrar,
+}: {
+  baseActual: number;
+  procesando: boolean;
+  onGuardar: (monto: number, motivo: string) => void;
+  onCerrar: () => void;
+}) {
+  const [monto, setMonto] = useState(String(baseActual));
+  const [motivo, setMotivo] = useState('');
+  const [error, setError] = useState('');
+
+  const enviar = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    const n = Number(monto);
+    if (monto.trim() === '' || !(n >= 0)) return setError('Escribe la base en pesos, sin puntos.');
+    if (!motivo.trim()) return setError('Escribe por qué cambias la base.');
+    onGuardar(Math.round(n), motivo.trim());
+  };
+
+  return (
+    <Modal titulo="Ajustar base" descripcion={`La caja se abrió con ${formatoMoneda(baseActual)}.`} onCerrar={onCerrar}>
+      <form onSubmit={enviar} className="flex flex-col gap-4">
+        <Field
+          etiqueta="Nueva base en efectivo"
+          type="number"
+          inputMode="numeric"
+          min="0"
+          step="1"
+          required
+          value={monto}
+          onChange={(e) => setMonto(e.target.value)}
+          className="text-lg font-bold tabular"
+        />
+        <Field etiqueta="Motivo" required placeholder="Ej.: metí plata para cambio" maxLength={120} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+        {error && <Alert tono="error">{error}</Alert>}
+        <div className="grid grid-cols-2 gap-2.5">
+          <Button type="button" variante="secundario" onClick={onCerrar}>Cancelar</Button>
+          <Button type="submit" cargando={procesando}>Guardar</Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
