@@ -9,11 +9,11 @@ Aplicación web de punto de venta, inventario, caja y reportes para **Distribuid
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase&logoColor=white)
 ![Vercel](https://img.shields.io/badge/Deploy-Vercel-black?logo=vercel)
 
-🔗 **Demo en vivo:** https://distribuidora-de-gestion.vercel.app
+**Demo en vivo:** https://distribuidora-de-gestion.vercel.app
 
 ---
 
-## 🧩 El problema
+## El problema
 
 La distribuidora llevaba las ventas, el inventario y el cuadre de caja en cuaderno y hojas de cálculo. Eso causaba:
 
@@ -25,7 +25,7 @@ La distribuidora llevaba las ventas, el inventario y el cuadre de caja en cuader
 
 Este sistema centraliza todo en una sola aplicación, con usuarios y permisos por rol.
 
-## ✨ Funcionalidades
+## Funcionalidades
 
 | Módulo | Qué hace |
 |---|---|
@@ -40,13 +40,13 @@ Este sistema centraliza todo en una sola aplicación, con usuarios y permisos po
 | **Huevos** | Inventario por tipo y tamaño, carrito de venta e historial de movimientos. |
 | **Usuarios** | Inicio de sesión y permisos por rol (administrador, vendedor, galponero) con Row Level Security. |
 
-## 🛠️ Tecnologías
+## Tecnologías
 
 - **Frontend:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, Lucide Icons.
 - **Backend y base de datos:** Supabase (PostgreSQL, Auth y Row Level Security).
 - **Despliegue:** Vercel.
 
-## 🗂️ Estructura
+## Estructura
 
 ```
 src/
@@ -60,7 +60,7 @@ supabase/
 └── migrations/     # Esquema de la base de datos y políticas RLS
 ```
 
-## 🚀 Cómo ejecutarlo
+## Cómo ejecutarlo
 
 **Requisitos:** Node.js 20 o superior y un proyecto en [Supabase](https://supabase.com).
 
@@ -85,7 +85,7 @@ npm run dev
 
 Abre http://localhost:3000.
 
-## 📚 Lo que aprendí
+## Lo que aprendí
 
 - Diseñar una base de datos real en PostgreSQL y protegerla con **Row Level Security** según el rol del usuario.
 - Organizar una app grande por **módulos de funcionalidad** (`features/`) en lugar de un solo archivo.
@@ -93,6 +93,6 @@ Abre http://localhost:3000.
 - Trabajar con **ramas y pull requests** para cada cambio, y desplegar continuamente en Vercel.
 - Escuchar al usuario final (el dueño del negocio) y convertir sus necesidades en funcionalidades.
 
-## 👤 Autor
+## Autor
 
 **Heiling** · [github.com/heiling-18](https://github.com/heiling-18)
