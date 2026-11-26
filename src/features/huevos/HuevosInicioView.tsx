@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { PackagePlus, RefreshCw, ShoppingBasket } from 'lucide-react';
+import { PackagePlus, RefreshCw, ShoppingBasket, Wallet } from 'lucide-react';
 import { Badge, Button, EmptyState, Panel, StatCard, cn } from '@/components/ui';
 import { formatoMoneda } from '@/lib/formato';
 import { hoyLocal, textoCartones } from '@/lib/galpones';
@@ -14,6 +14,9 @@ interface HuevosInicioViewProps {
   onActualizar: () => void;
   onVender: (tipoId: number) => void;
   onInventario: () => void;
+  /** Plata de huevos (vendido − retirado); null si no se muestra (vendedor o sin migración) */
+  plata: number | null;
+  onPlata: () => void;
 }
 
 function saludo() {
@@ -70,6 +73,22 @@ export function HuevosInicioView(p: HuevosInicioViewProps) {
           detalle={resumen.huevosRotos > 0 ? 'Ya descontados del inventario' : 'Sin pérdidas'}
         />
       </section>
+
+      {p.plata !== null && (
+        <Panel className="flex flex-wrap items-center justify-between gap-4 p-5">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-semibold text-tinta-suave">Plata de huevos (aparte de la purina)</span>
+            <span className={cn('font-display text-[28px] font-extrabold leading-none tabular', p.plata < 0 && 'text-rojo-oscuro')}>
+              {formatoMoneda(p.plata)}
+            </span>
+            <span className="text-sm text-tinta-suave">Todo lo vendido menos lo retirado</span>
+          </div>
+          <Button variante="secundario" onClick={p.onPlata}>
+            <Wallet className="h-5 w-5" aria-hidden="true" />
+            Ver y retirar
+          </Button>
+        </Panel>
+      )}
 
       {activos.length === 0 ? (
         <EmptyState titulo="Todavía no hay tamaños de huevo" descripcion="El administrador debe crearlos (AAA, AA, A, B…) en Tipos y precios." />

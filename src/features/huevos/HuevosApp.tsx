@@ -13,14 +13,17 @@ import {
   MODULOS_HUEVOS,
   NOMBRE_CLASE,
   enBodega,
+  plataDeHuevos,
   saldoPorTipo,
   valorHuevos,
   type CambiosTipo,
   type ModuloHuevos,
   type MovimientoHuevo,
   type NuevoMovimiento,
+  type RetiroHuevos,
   type TipoHuevo,
 } from '@/lib/huevos';
+import { PlataHuevosView } from './PlataHuevosView';
 import { HuevosInicioView } from './HuevosInicioView';
 import { VenderHuevosView } from './VenderHuevosView';
 import { InventarioHuevosView } from './InventarioHuevosView';
@@ -46,6 +49,7 @@ const aMovimiento = (m: MovimientoHuevo): MovimientoHuevo => ({
   costo_carton: m.costo_carton == null ? null : Number(m.costo_carton),
 });
 const ordenarMovs = (a: MovimientoHuevo, b: MovimientoHuevo) => b.fecha.localeCompare(a.fecha) || b.id - a.id;
+const aRetiro = (r: RetiroHuevos): RetiroHuevos => ({ ...r, monto: Number(r.monto) || 0 });
 
 /**
  * Sección HUEVOS: compra y venta de huevos por tamaño.
@@ -63,13 +67,29 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
   const [movAEliminar, setMovAEliminar] = useState<MovimientoHuevo | null>(null);
   const [movAEditar, setMovAEditar] = useState<MovimientoHuevo | null>(null);
   const [tipoAEliminar, setTipoAEliminar] = useState<TipoHuevo | null>(null);
+  const [retiros, setRetiros] = useState<RetiroHuevos[]>([]);
+  const [faltaRetiros, setFaltaRetiros] = useState(false);
+  const [retiroAEliminar, setRetiroAEliminar] = useState<RetiroHuevos | null>(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    const [t, m] = await Promise.all([
+    const [t, m, r] = await Promise.all([
       supabase.from('hue_tipos').select('*').order('orden', { ascending: true }).order('nombre', { ascending: true }),
       supabase.from('hue_movimientos').select('*').order('fecha', { ascending: false }).order('id', { ascending: false }),
+      // Los retiros (plata de huevos) solo los ve el administrador
+      esAdmin
+        ? supabase.from('hue_retiros').select('*').order('fecha', { ascending: false }).order('id', { ascending: false })
+        : Promise.resolve(null),
     ]);
+    if (r) {
+      if (r.error) {
+        // La tabla no existe todavía: la plata de huevos se activa al correr su migración
+        setFaltaRetiros(true);
+      } else {
+        setFaltaRetiros(false);
+        setRetiros((r.data || []).map(aRetiro));
+      }
+    }
     const error = t.error || m.error;
     if (error) {
       // 42P01 / PGRST205: la tabla no existe todavía (migración sin ejecutar)
@@ -84,7 +104,7 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
       setMovimientos((m.data || []).map(aMovimiento));
     }
     setCargando(false);
-  }, [notificar]);
+  }, [notificar, esAdmin]);
 
   useEffect(() => {
     // Carga inicial de la sección (los datos viven en Supabase)
@@ -245,6 +265,48 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
     setTipoAEliminar(null);
   };
 
+  // Plata de huevos: todo lo vendido − todo lo retirado (aparte de la caja de la purina)
+  const plata = useMemo(() => plataDeHuevos(movimientos, retiros), [movimientos, retiros]);
+
+  const retirar = async (monto: number, motivo: string) => {
+    if (procesando) return false;
+    setProcesando(true);
+    try {
+      const { data, error } = await supabase
+        .from('hue_retiros')
+        .insert([{ monto, motivo, registrado_por: usuario.nombre }])
+        .select()
+        .single();
+      if (error || !data) {
+        notificar(
+          'error',
+          /No hay suficiente plata/.test(error?.message || '')
+            ? 'No alcanza la plata de huevos para ese retiro. Toca actualizar y revisa cuánto hay.'
+            : 'No se pudo guardar el retiro: ' + (error?.message || 'sin respuesta del servidor')
+        );
+        return false;
+      }
+      const nuevo = aRetiro(data);
+      setRetiros((prev) => [nuevo, ...prev]);
+      notificar('exito', `Retiraste ${formatoMoneda(nuevo.monto)}. Quedan ${formatoMoneda(plata - nuevo.monto)} de huevos.`);
+      return true;
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  const confirmarEliminarRetiro = async () => {
+    if (!retiroAEliminar) return;
+    const { error } = await supabase.from('hue_retiros').delete().eq('id', retiroAEliminar.id);
+    if (error) {
+      notificar('error', 'No se pudo eliminar el retiro: ' + error.message);
+    } else {
+      setRetiros((prev) => prev.filter((r) => r.id !== retiroAEliminar.id));
+      notificar('exito', `Retiro eliminado: ${formatoMoneda(retiroAEliminar.monto)} vuelven a la plata de huevos.`);
+    }
+    setRetiroAEliminar(null);
+  };
+
   const irAVender = (tipoId: number) => {
     setTipoParaVender(tipoId);
     setModulo('hue-vender');
@@ -297,7 +359,26 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
                   onActualizar={cargar}
                   onVender={irAVender}
                   onInventario={() => setModulo('hue-inventario')}
+                  plata={esAdmin && !faltaRetiros ? plata : null}
+                  onPlata={() => setModulo('hue-plata')}
                 />
+              )}
+              {moduloVisible === 'hue-plata' && esAdmin && (
+                faltaRetiros ? (
+                  <Alert tono="aviso">
+                    La plata de huevos todavía no está activada en la base de datos. Ejecuta el archivo
+                    <strong> supabase/migrations/20261125000000_huevos_retiros.sql</strong> en Supabase → SQL Editor.
+                  </Alert>
+                ) : (
+                  <PlataHuevosView
+                    movimientos={movimientos}
+                    retiros={retiros}
+                    hay={plata}
+                    procesando={procesando}
+                    onRetirar={retirar}
+                    onEliminar={setRetiroAEliminar}
+                  />
+                )
               )}
               {moduloVisible === 'hue-vender' && (
                 <VenderHuevosView
@@ -371,6 +452,15 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
           <p className="text-tinta-suave">
             {movAEliminar.clase === 'entrada' ? 'Esos huevos salen del inventario.' : 'Esos huevos vuelven al inventario.'} Esto no se puede deshacer.
           </p>
+        </ConfirmDialog>
+      )}
+
+      {retiroAEliminar && (
+        <ConfirmDialog titulo="¿Eliminar este retiro?" textoConfirmar="Eliminar" onConfirmar={confirmarEliminarRetiro} onCancelar={() => setRetiroAEliminar(null)}>
+          <p>
+            {formatoMoneda(retiroAEliminar.monto)} del {formatoDia(retiroAEliminar.fecha)}: <strong>{retiroAEliminar.motivo}</strong>.
+          </p>
+          <p className="text-tinta-suave">Esa plata vuelve a la cuenta de huevos. Esto no se puede deshacer.</p>
         </ConfirmDialog>
       )}
 
