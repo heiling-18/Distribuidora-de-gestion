@@ -58,7 +58,8 @@ export type ModuloHuevos = 'hue-inicio' | 'hue-vender' | 'hue-inventario' | 'hue
 export const MODULOS_HUEVOS: { id: ModuloHuevos; etiqueta: string; corto: string; Icono: LucideIcon; soloAdmin?: boolean }[] = [
   { id: 'hue-inicio', etiqueta: 'Inicio', corto: 'Inicio', Icono: House },
   { id: 'hue-vender', etiqueta: 'Vender', corto: 'Vender', Icono: ShoppingBasket },
-  { id: 'hue-inventario', etiqueta: 'Inventario', corto: 'Inventario', Icono: PackagePlus },
+  // Cargar huevos al inventario es solo del administrador; el vendedor solo vende
+  { id: 'hue-inventario', etiqueta: 'Inventario', corto: 'Inventario', Icono: PackagePlus, soloAdmin: true },
   { id: 'hue-plata', etiqueta: 'Plata de huevos', corto: 'Plata', Icono: Wallet, soloAdmin: true },
   { id: 'hue-historial', etiqueta: 'Historial', corto: 'Historial', Icono: ClipboardList },
   { id: 'hue-tipos', etiqueta: 'Tipos y precios', corto: 'Tipos', Icono: Tags, soloAdmin: true },
