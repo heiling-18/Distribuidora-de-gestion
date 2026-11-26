@@ -62,6 +62,16 @@ const cargarPerfilUsuario = async (email: string): Promise<Usuario | null> => {
   };
 };
 
+/**
+ * Valores de una línea del carrito. El precio del producto YA incluye el IVA (así lo calcula el
+ * formulario de producto): el IVA se separa del total, no se suma encima.
+ */
+const lineaConIva = (precio: number, cantidad: number, ivaPorcentaje: number) => {
+  const total = Math.round(precio * cantidad);
+  const iva = Math.round(total - total / (1 + (ivaPorcentaje || 0) / 100));
+  return { total, iva_monto: iva, subtotal: total - iva };
+};
+
 /** Fila de la tabla caja → SesionCaja (Supabase devuelve los numeric como texto) */
 const aSesionCaja = (c: Record<string, unknown>): SesionCaja => {
   const num = (v: unknown) => (v == null ? null : Number(v));
@@ -677,7 +687,6 @@ export default function DYMSApp() {
     }
 
     const precio = tipoPrecio === 'mayorista' ? prod.precio_mayorista : prod.precio_venta;
-    const ivaMonto = (precio * (prod.iva_porcentaje || 0)) / 100;
 
     const itemExistente = carrito.find(i => i.producto.id === prod.id && i.tipo_precio === tipoPrecio);
 
@@ -685,22 +694,17 @@ export default function DYMSApp() {
       setCarrito(prev => prev.map(i => {
         if (i.producto.id === prod.id && i.tipo_precio === tipoPrecio) {
           const nuevaCant = i.cantidad + 1;
-          const sub = nuevaCant * precio;
-          const iva = (sub * (prod.iva_porcentaje || 0)) / 100;
-          return { ...i, cantidad: nuevaCant, subtotal: sub, iva_monto: iva, total: sub + iva };
+          return { ...i, cantidad: nuevaCant, ...lineaConIva(precio, nuevaCant, prod.iva_porcentaje) };
         }
         return i;
       }));
     } else {
-      const sub = precio;
       setCarrito(prev => [...prev, {
         producto: prod,
         cantidad: 1,
         tipo_precio: tipoPrecio,
         precio_aplicado: precio,
-        subtotal: sub,
-        iva_monto: ivaMonto,
-        total: sub + ivaMonto
+        ...lineaConIva(precio, 1, prod.iva_porcentaje)
       }]);
     }
   };
@@ -722,9 +726,7 @@ export default function DYMSApp() {
         return prev;
       }
 
-      const sub = nueva * item.precio_aplicado;
-      const iva = (sub * (item.producto.iva_porcentaje || 0)) / 100;
-      const act = { ...item, cantidad: nueva, subtotal: sub, iva_monto: iva, total: sub + iva };
+      const act = { ...item, cantidad: nueva, ...lineaConIva(item.precio_aplicado, nueva, item.producto.iva_porcentaje) };
       return prev.map((it, i) => i === idx ? act : it);
     });
   };
