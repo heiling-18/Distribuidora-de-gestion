@@ -34,6 +34,20 @@ export function HistorialHuevosView(p: HistorialHuevosViewProps) {
   const tot = totalesMovimientos(delMes);
   const lista = delMes.filter((m) => filtro === 'todos' || m.clase === filtro);
   const nombreTipo = (id: number) => p.tipos.find((t) => t.id === id)?.nombre ?? '—';
+  const precioTipo = (id: number) => p.tipos.find((t) => t.id === id)?.precio_venta ?? 0;
+
+  /** Valor de cada fila: la venta a su precio; ingresos y rotos al precio de venta actual del tamaño */
+  const valorFila = (m: MovimientoHuevo) => {
+    if (m.clase === 'venta') return <span className="font-bold">{formatoMoneda(valorHuevos(m.huevos, m.precio_carton))}</span>;
+    const precio = precioTipo(m.tipo_id);
+    if (precio <= 0) return <span className="text-tinta-tenue">Sin precio</span>;
+    const valor = formatoMoneda(valorHuevos(m.huevos, precio));
+    return m.clase === 'entrada' ? (
+      <span className="text-tinta-suave">vale {valor}</span>
+    ) : (
+      <span className="font-semibold text-rojo-oscuro">− {valor}</span>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -82,11 +96,10 @@ export function HistorialHuevosView(p: HistorialHuevosViewProps) {
         {lista.length === 0 ? (
           <EmptyState className="m-6" titulo="No hay movimientos" descripcion="En este mes no hay nada anotado con ese filtro." />
         ) : (
-          <Tabla minAncho={780} className="mt-4">
+          <Tabla minAncho={720} className="mt-4">
             <thead>
               <tr>
-                <Th>Fecha</Th>
-                <Th>Qué</Th>
+                <Th>Qué y cuándo</Th>
                 <Th>Tamaño</Th>
                 <Th>Cantidad</Th>
                 <Th alinear="der">Total</Th>
@@ -98,13 +111,16 @@ export function HistorialHuevosView(p: HistorialHuevosViewProps) {
             <tbody>
               {lista.map((m) => (
                 <Fila key={m.id}>
-                  <Td className="whitespace-nowrap text-tinta-suave tabular">{formatoDia(m.fecha)}</Td>
-                  <Td><Badge tono={TONO_CLASE[m.clase]}>{NOMBRE_CLASE[m.clase]}</Badge></Td>
+                  <Td>
+                    {/* Lo primero que se ve en el celular: si es venta, ingreso o rotos, y el día */}
+                    <div className="flex flex-col items-start gap-1">
+                      <Badge tono={TONO_CLASE[m.clase]}>{NOMBRE_CLASE[m.clase]}</Badge>
+                      <span className="whitespace-nowrap text-sm text-tinta-suave tabular">{formatoDia(m.fecha)}</span>
+                    </div>
+                  </Td>
                   <Td className="font-semibold">{nombreTipo(m.tipo_id)}</Td>
                   <Td className="whitespace-nowrap tabular">{textoCartones(m.huevos)}</Td>
-                  <Td alinear="der" className="whitespace-nowrap font-bold tabular">
-                    {m.clase === 'venta' ? formatoMoneda(valorHuevos(m.huevos, m.precio_carton)) : '—'}
-                  </Td>
+                  <Td alinear="der" className="whitespace-nowrap tabular">{valorFila(m)}</Td>
                   <Td className="text-tinta-suave">{m.tercero || '—'}</Td>
                   <Td className="text-tinta-suave">{m.registrado_por || '—'}</Td>
                   {p.esAdmin && (
