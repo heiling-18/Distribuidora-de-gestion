@@ -13,7 +13,8 @@ interface HuevosInicioViewProps {
   actualizando: boolean;
   onActualizar: () => void;
   onVender: (tipoId: number) => void;
-  onInventario: () => void;
+  /** Solo el administrador carga huevos al inventario (sin esto no se muestra el botón) */
+  onInventario?: () => void;
   /** Plata de huevos (vendido − retirado); null si no se muestra (vendedor o sin migración) */
   plata: number | null;
   onPlata: () => void;
@@ -55,10 +56,12 @@ export function HuevosInicioView(p: HuevosInicioViewProps) {
           <Button variante="secundario" onClick={p.onActualizar} disabled={p.actualizando} aria-label="Actualizar datos" title="Actualizar datos" className="px-3.5">
             <RefreshCw className={cn('h-5 w-5', p.actualizando && 'animate-spin')} aria-hidden="true" />
           </Button>
-          <Button variante="secundario" onClick={p.onInventario}>
-            <PackagePlus className="h-5 w-5" aria-hidden="true" />
-            Agregar al inventario
-          </Button>
+          {p.onInventario && (
+            <Button variante="secundario" onClick={p.onInventario}>
+              <PackagePlus className="h-5 w-5" aria-hidden="true" />
+              Agregar al inventario
+            </Button>
+          )}
         </div>
       </header>
 

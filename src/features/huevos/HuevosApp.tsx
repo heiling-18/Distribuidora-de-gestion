@@ -358,7 +358,7 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
                   actualizando={cargando}
                   onActualizar={cargar}
                   onVender={irAVender}
-                  onInventario={() => setModulo('hue-inventario')}
+                  onInventario={esAdmin ? () => setModulo('hue-inventario') : undefined}
                   plata={esAdmin && !faltaRetiros ? plata : null}
                   onPlata={() => setModulo('hue-plata')}
                 />
@@ -391,7 +391,7 @@ export function HuevosApp({ usuario, onSalir, notificar, cambiosSeccion }: Huevo
                   onGuardar={guardarMovimientos}
                 />
               )}
-              {moduloVisible === 'hue-inventario' && (
+              {moduloVisible === 'hue-inventario' && esAdmin && (
                 <InventarioHuevosView
                   esAdmin={esAdmin}
                   tipos={tipos}
