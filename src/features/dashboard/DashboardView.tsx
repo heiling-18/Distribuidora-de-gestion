@@ -168,13 +168,13 @@ export function DashboardView(p: DashboardViewProps) {
             <StatCard
               etiqueta="Dinero en caja"
               valor={formatoMoneda(p.totales.dineroEnCaja)}
-              detalle={`Efectivo ${formatoMoneda(p.totales.efectivoEnCaja)} · gastos ${formatoMoneda(p.totales.gastosHoy)}`}
+              detalle={`Efectivo ${formatoMoneda(p.totales.efectivoEnCaja)} · gastos de hoy ${formatoMoneda(p.totales.gastosHoy)}`}
               className="h-full pb-11"
             />
           }
           total={
             <StatCard
-              etiqueta="Dinero total · todos los meses"
+              etiqueta="Ventas − egresos · todos los meses"
               valor={formatoMoneda(p.totales.acumulado.total)}
               detalle={`Vendido ${formatoMoneda(p.totales.acumulado.efectivo + p.totales.acumulado.transferencia)} · gastos ${formatoMoneda(p.totales.acumulado.gastos)}`}
               className="h-full pb-11"
