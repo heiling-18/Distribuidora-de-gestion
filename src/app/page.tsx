@@ -1072,6 +1072,16 @@ export default function DYMSApp() {
   // ==========================================
   // 17. GASTOS: MODIFICAR Y ELIMINAR IN-APP (SIN CONFIRM)
   // ==========================================
+  // La caja de hoy ya se cerró y no hay otra abierta: un egreso sale de lo que quedó para mañana
+  const cajaCerradaSinAbrir = cajaAutomatica && cajaActual?.estado !== 'abierta' && ultimaCaja?.estado === 'cerrada';
+  // ¿El egreso se anotó después de cerrar la última caja?
+  const esDespuesDelCierre = (fecha: string) => {
+    if (!ultimaCaja) return false;
+    const dia = String(ultimaCaja.fecha).slice(0, 10);
+    const cierre = historialCierres.find(c => String(c.fecha).slice(0, 10) === dia);
+    return !!cierre?.hora_cierre && new Date(fecha).getTime() > new Date(cierre.hora_cierre).getTime();
+  };
+
   const handleGuardarGasto = async (e: React.FormEvent) => {
     e.preventDefault();
     if (procesandoGasto) return;
@@ -1087,30 +1097,61 @@ export default function DYMSApp() {
       return;
     }
 
-    if (m > dineroTotalDisponibleEnCaja) {
-      mostrarNotificacion('error', `Fondos insuficientes: El monto (${formatoMoneda(m)}) supera el total disponible en caja (${formatoMoneda(dineroTotalDisponibleEnCaja)}).`);
-      return;
-    }
+    // Al corregir solo cuenta la diferencia con lo que ya estaba anotado
+    const anterior = editandoGastoId ? gastos.find(g => g.id === editandoGastoId) : undefined;
+    const delta = m - (Number(anterior?.monto) || 0);
+    // Caja de hoy ya cerrada: el egreso sale de lo que quedó en la gaveta para mañana
+    const tocaBase = cajaCerradaSinAbrir && (!anterior || esDespuesDelCierre(anterior.fecha));
 
     setProcesandoGasto(true);
-    const nuevoGasto = {
-      categoria: gastoCat,
-      descripcion: gastoDesc.trim(),
-      monto: m,
-      fecha: new Date().toISOString()
-    };
-
+    let cajaDescontada: SesionCaja | null = null;
     try {
-      if (editandoGastoId) {
-        const { error } = await supabase.from('gastos').update(nuevoGasto).eq('id', editandoGastoId);
-        if (error) throw new Error(error.message);
-        setGastos(prev => prev.map(g => g.id === editandoGastoId ? { ...nuevoGasto, id: editandoGastoId } : g));
-        mostrarNotificacion('exito', '¡Gasto operacional actualizado!');
+      if (tocaBase && delta !== 0) {
+        const { data: cj, error: errBase } = await supabase.rpc('egreso_con_caja_cerrada', { p_delta: delta });
+        if (errBase) {
+          if (/No alcanza/.test(errBase.message)) {
+            mostrarNotificacion('error', `No alcanza: para mañana quedaron ${formatoMoneda(Number(ultimaCaja?.base_siguiente) || 0)} en la gaveta y el egreso es de ${formatoMoneda(delta)}.`);
+            return;
+          }
+          if (!/egreso_con_caja_cerrada|PGRST202/.test(errBase.message + (errBase.code || ''))) throw new Error(errBase.message);
+          // La función aún no existe en la base: se guarda igual y se avisa
+          mostrarNotificacion('advertencia', 'La caja ya está cerrada y falta correr el SQL 20261126000000_egreso_caja_cerrada.sql: este egreso no se descontará de lo que quedó para mañana.');
+        } else if (cj && cj.id) {
+          cajaDescontada = aSesionCaja(cj);
+        }
+      }
+
+      if (!cajaDescontada && delta > dineroTotalDisponibleEnCaja) {
+        mostrarNotificacion('error', `Fondos insuficientes: El monto (${formatoMoneda(delta)}) supera el total disponible en caja (${formatoMoneda(dineroTotalDisponibleEnCaja)}).`);
+        return;
+      }
+
+      // Al corregir se conserva la fecha original del egreso
+      const datosGasto = { categoria: gastoCat, descripcion: gastoDesc.trim(), monto: m };
+      try {
+        if (editandoGastoId) {
+          const { error } = await supabase.from('gastos').update(datosGasto).eq('id', editandoGastoId);
+          if (error) throw new Error(error.message);
+          setGastos(prev => prev.map(g => g.id === editandoGastoId ? { ...g, ...datosGasto } : g));
+        } else {
+          const { data, error } = await supabase.from('gastos').insert([{ ...datosGasto, fecha: new Date().toISOString() }]).select().single();
+          if (error || !data) throw new Error(error?.message || 'Sin respuesta del servidor');
+          setGastos(prev => [data, ...prev]);
+        }
+      } catch (errGasto) {
+        // No se guardó el egreso: se devuelve lo descontado de la base de mañana
+        if (cajaDescontada) await supabase.rpc('egreso_con_caja_cerrada', { p_delta: -delta });
+        throw errGasto;
+      }
+
+      if (cajaDescontada) {
+        setUltimaCaja(cajaDescontada);
+        mostrarNotificacion(
+          'exito',
+          `La caja ya estaba cerrada: se ${delta > 0 ? 'descontaron' : 'devolvieron'} ${formatoMoneda(Math.abs(delta))} de lo que quedó para mañana. Mañana abre con ${formatoMoneda(Number(cajaDescontada.base_siguiente) || 0)}.`
+        );
       } else {
-        const { data, error } = await supabase.from('gastos').insert([nuevoGasto]).select().single();
-        if (error || !data) throw new Error(error?.message || 'Sin respuesta del servidor');
-        setGastos(prev => [data, ...prev]);
-        mostrarNotificacion('exito', '¡Gasto operacional registrado en caja!');
+        mostrarNotificacion('exito', editandoGastoId ? '¡Gasto operacional actualizado!' : '¡Gasto operacional registrado en caja!');
       }
 
       setGastoDesc('');
@@ -1135,10 +1176,24 @@ export default function DYMSApp() {
   const handleConfirmarEliminarGasto = async () => {
     if (!gastoAEliminar) return;
     try {
+      // Si se anotó después de cerrar la caja de hoy, la plata vuelve a lo que quedó para mañana
+      let cajaDevuelta: SesionCaja | null = null;
+      if (cajaCerradaSinAbrir && esDespuesDelCierre(gastoAEliminar.fecha)) {
+        const { data: cj, error: errBase } = await supabase.rpc('egreso_con_caja_cerrada', { p_delta: -Number(gastoAEliminar.monto) });
+        if (!errBase && cj && cj.id) cajaDevuelta = aSesionCaja(cj);
+      }
       const { error } = await supabase.from('gastos').delete().eq('id', gastoAEliminar.id);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (cajaDevuelta) await supabase.rpc('egreso_con_caja_cerrada', { p_delta: Number(gastoAEliminar.monto) });
+        throw new Error(error.message);
+      }
       setGastos(prev => prev.filter(g => g.id !== gastoAEliminar.id));
-      mostrarNotificacion('exito', 'Gasto eliminado y restituido al saldo de caja.');
+      if (cajaDevuelta) {
+        setUltimaCaja(cajaDevuelta);
+        mostrarNotificacion('exito', `Egreso eliminado: ${formatoMoneda(Number(gastoAEliminar.monto))} vuelven a lo que quedó para mañana. Mañana abre con ${formatoMoneda(Number(cajaDevuelta.base_siguiente) || 0)}.`);
+      } else {
+        mostrarNotificacion('exito', 'Gasto eliminado y restituido al saldo de caja.');
+      }
       setGastoAEliminar(null);
     } catch (err) {
       mostrarNotificacion('error', 'Error eliminando gasto: ' + (err as Error).message);
@@ -1818,7 +1873,7 @@ ${detalle}
           categoria={gastoCat}
           descripcion={gastoDesc}
           monto={gastoMonto}
-          disponibleEnCaja={dineroTotalDisponibleEnCaja}
+          disponibleEnCaja={cajaCerradaSinAbrir ? Number(ultimaCaja?.base_siguiente) || 0 : dineroTotalDisponibleEnCaja}
           procesando={procesandoGasto}
           onCategoria={setGastoCat}
           onDescripcion={setGastoDesc}
