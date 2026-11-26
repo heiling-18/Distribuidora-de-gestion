@@ -1,4 +1,4 @@
-import { ClipboardList, House, PackagePlus, ShoppingBasket, Tags, type LucideIcon } from 'lucide-react';
+import { ClipboardList, House, PackagePlus, ShoppingBasket, Tags, Wallet, type LucideIcon } from 'lucide-react';
 import { HUEVOS_POR_CARTON } from './galpones';
 
 // ==========================================
@@ -43,12 +43,23 @@ export type CambiosTipo = Partial<Pick<TipoHuevo, 'nombre' | 'precio_venta' | 'a
 /** Lo que se envía al guardar un ingreso, una venta o unos rotos */
 export type NuevoMovimiento = Omit<MovimientoHuevo, 'id' | 'created_at' | 'registrado_por'>;
 
-export type ModuloHuevos = 'hue-inicio' | 'hue-vender' | 'hue-inventario' | 'hue-historial' | 'hue-tipos';
+/** Plata que se saca de lo vendido en huevos (cuenta aparte de la purina) */
+export interface RetiroHuevos {
+  id: number;
+  fecha: string; // YYYY-MM-DD
+  monto: number;
+  motivo: string;
+  registrado_por: string | null;
+  created_at: string;
+}
+
+export type ModuloHuevos = 'hue-inicio' | 'hue-vender' | 'hue-inventario' | 'hue-plata' | 'hue-historial' | 'hue-tipos';
 
 export const MODULOS_HUEVOS: { id: ModuloHuevos; etiqueta: string; corto: string; Icono: LucideIcon; soloAdmin?: boolean }[] = [
   { id: 'hue-inicio', etiqueta: 'Inicio', corto: 'Inicio', Icono: House },
   { id: 'hue-vender', etiqueta: 'Vender', corto: 'Vender', Icono: ShoppingBasket },
   { id: 'hue-inventario', etiqueta: 'Inventario', corto: 'Inventario', Icono: PackagePlus },
+  { id: 'hue-plata', etiqueta: 'Plata de huevos', corto: 'Plata', Icono: Wallet, soloAdmin: true },
   { id: 'hue-historial', etiqueta: 'Historial', corto: 'Historial', Icono: ClipboardList },
   { id: 'hue-tipos', etiqueta: 'Tipos y precios', corto: 'Tipos', Icono: Tags, soloAdmin: true },
 ];
@@ -80,3 +91,13 @@ export function totalesMovimientos(movs: MovimientoHuevo[]) {
   }
   return t;
 }
+
+/** Lo vendido en huevos (en pesos) de un conjunto de movimientos */
+export const vendidoEnPesos = (movs: MovimientoHuevo[]) =>
+  movs.reduce((acc, m) => acc + (m.clase === 'venta' ? valorHuevos(m.huevos, m.precio_carton) : 0), 0);
+
+/** Suma de los retiros */
+export const totalRetirado = (retiros: RetiroHuevos[]) => retiros.reduce((acc, r) => acc + r.monto, 0);
+
+/** Plata de huevos: todo lo vendido − todo lo retirado (cuenta acumulada, aparte de la purina) */
+export const plataDeHuevos = (movs: MovimientoHuevo[], retiros: RetiroHuevos[]) => vendidoEnPesos(movs) - totalRetirado(retiros);
